@@ -2,8 +2,8 @@ import jwt from "jsonwebtoken";
 export const safeUser = ({ password: _password, ...user }) => user;
 export const cookieOptions = {
   httpOnly: true,
-  sameSite: "lax",
-  secure: process.env.NODE_ENV === "production",
+  sameSite: "none",
+  secure: true,
   maxAge: 7 * 86400000,
 };
 export function signIn(res, user, secret) {

@@ -37,6 +37,7 @@ if (!secret) {
 const db = await createStore(directory, process.env.MONGODB_URI);
 await seedOpportunities(db);
 const app = express();
+app.set("trust proxy", 1);
 app.use(
   helmet({
     contentSecurityPolicy: false,
