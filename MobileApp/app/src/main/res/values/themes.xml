@@ -1,0 +1,7 @@
+<resources>
+<style name="Theme.ON_OA" parent="Theme.MaterialComponents.Light.NoActionBar">
+<item name="colorPrimary">#EF633D</item><item name="colorSecondary">#EF633D</item>
+<item name="android:fontFamily">sans</item><item name="android:windowLightStatusBar">true</item>
+<item name="android:windowBackground">#F5F2EB</item>
+<item name="android:colorAccent">#EF633D</item>
+</style></resources>

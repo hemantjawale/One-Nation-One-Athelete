@@ -1,0 +1,816 @@
+@media (min-width: 1600px) {
+  .hero-copy {
+    top: 25%;
+  }
+  .hero-copy h1 {
+    font-size: 165px;
+  }
+  .landing-section {
+    padding-left: 9%;
+    padding-right: 9%;
+  }
+}
+@media (max-width: 1200px) {
+  .landing-nav nav {
+    gap: 18px;
+  }
+  .nav-actions {
+    gap: 15px;
+  }
+  .feature {
+    padding: 24px;
+    min-height: 440px;
+  }
+  .feature h3 {
+    font-size: 35px;
+  }
+  .sidebar {
+    width: 215px;
+    padding-left: 13px;
+    padding-right: 13px;
+  }
+  .workspace-body {
+    margin-left: 215px;
+  }
+  main {
+    padding: 25px 26px 50px;
+  }
+  .workspace-top {
+    padding: 0 26px;
+  }
+  .stat {
+    padding: 18px;
+  }
+  .stat strong {
+    font-size: 31px;
+  }
+  .stat-grid {
+    gap: 10px;
+  }
+  .page-title h1 {
+    font-size: 32px;
+  }
+  .career-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .week-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .opportunity-meta {
+    gap: 5px;
+  }
+  .feature-grid {
+    gap: 12px;
+  }
+  .hero-meta {
+    top: 115px;
+  }
+  .hero-copy h1 {
+    font-size: 12vw;
+  }
+}
+@media (max-width: 960px) {
+  .landing-nav {
+    height: 78px;
+  }
+  .landing-nav nav {
+    display: none;
+  }
+  .menu-button {
+    display: flex;
+  }
+  .landing-nav nav.open {
+    display: flex;
+    position: absolute;
+    top: 78px;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    gap: 25px;
+    background: #1d211b;
+    padding: 30px;
+  }
+  .hero-copy {
+    top: 24%;
+  }
+  .hero-copy h1 {
+    font-size: 13vw;
+  }
+  .hero-meta > span:last-child {
+    display: none;
+  }
+  .hero-bottom {
+    gap: 25px;
+  }
+  .mission-grid {
+    gap: 5%;
+  }
+  .mission-text > p:first-of-type {
+    font-size: 19px;
+  }
+  .mission-stats > div + div {
+    padding-left: 22px;
+  }
+  .mission-stats > div {
+    gap: 13px;
+  }
+  .mission-stats b {
+    font-size: 50px;
+  }
+  .mission-stats span {
+    font-size: 8px;
+  }
+  .feature-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .feature-video {
+    grid-column: 1/-1;
+    min-height: 410px;
+  }
+  .feature-video .feature-icon {
+    left: 65%;
+    top: 40%;
+  }
+  .feature-video > img {
+    object-position: center 45%;
+  }
+  .feature-video > div:last-of-type {
+    max-width: 60%;
+  }
+  .feature h3 {
+    font-size: 43px;
+  }
+  .capability-strip {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 20px 35px;
+  }
+  .access-layout {
+    gap: 7%;
+  }
+  .final-cta h2 > span {
+    font-size: 140px;
+  }
+  .landing-footer {
+    flex-wrap: wrap;
+  }
+  .landing-footer > span:nth-child(2) {
+    display: none;
+  }
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.2s;
+    width: 235px;
+  }
+  .sidebar.visible {
+    transform: translateX(0);
+  }
+  .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: #12190ab3;
+    z-index: 25;
+  }
+  .workspace-body {
+    margin: 0;
+  }
+  .mobile-menu {
+    display: inline-flex;
+  }
+  .workspace-top > div {
+    gap: 15px;
+  }
+  .workspace-top {
+    height: 68px;
+  }
+  .demo-banner {
+    font-size: 9px;
+  }
+  .page-title {
+    gap: 15px;
+  }
+  .stat strong {
+    font-size: 32px;
+  }
+  .passport-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+  .lab-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .opportunities-grid {
+    gap: 16px;
+  }
+  .workspace-top > div:first-child > span {
+    font-size: 7px;
+  }
+}
+@media (max-width: 640px) {
+  .landing-nav {
+    padding: 0 6%;
+    height: 78px;
+  }
+  .landing-nav .brand {
+    font-size: 10px;
+  }
+  .landing-nav .brand-mark i {
+    width: 6px;
+  }
+  .nav-actions > .button {
+    display: none;
+  }
+  .nav-actions {
+    gap: 15px;
+    font-size: 11px;
+  }
+  .hero-meta {
+    left: 6%;
+    top: 112px;
+    font-size: 7px;
+    letter-spacing: 1px;
+  }
+  .hero-copy {
+    left: 6%;
+    right: 6%;
+    top: 27%;
+  }
+  .hero-copy h1 {
+    font-size: 19vw;
+    line-height: 0.94;
+    margin-bottom: 30px;
+  }
+  .hero-copy h1 > span {
+    font-size: 16.6vw;
+    white-space: nowrap;
+  }
+  .film-sticky {
+    min-height: 680px;
+    height: 100svh;
+    max-height: 950px;
+  }
+  .hero-bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 25px;
+  }
+  .hero-bottom p {
+    font-size: 13px;
+  }
+  .hero-bottom .button {
+    font-size: 11px;
+  }
+  .film-footer {
+    bottom: 30px;
+    left: 6%;
+    right: 6%;
+    font-size: 7px;
+    letter-spacing: 1px;
+  }
+  .film-footer > span {
+    gap: 7px;
+  }
+  .film-footer .sequence-progress {
+    display: none;
+  }
+  .film-footer button {
+    font-size: 8px;
+  }
+  .side-label {
+    display: none;
+  }
+  .sequence-copy {
+    left: 6%;
+    right: 6%;
+    top: 30%;
+  }
+  .sequence-copy > .eyebrow {
+    font-size: 8px;
+  }
+  .sequence-copy h2 {
+    font-size: 15vw;
+    margin: 25px 0 35px;
+  }
+  .sequence-copy .button {
+    font-size: 10px;
+    gap: 10px;
+  }
+  .ticker {
+    font-size: 19px;
+    padding: 14px 6%;
+    gap: 25px;
+  }
+  .ticker i {
+    font-size: 20px;
+  }
+  .landing-section {
+    padding: 40px 6% 50px;
+  }
+  .section-kicker {
+    font-size: 7px;
+    letter-spacing: 0.8px;
+    gap: 30px;
+  }
+  .section-kicker > span:last-child {
+    text-align: right;
+  }
+  .mission-grid {
+    grid-template-columns: 1fr;
+    padding: 40px 0;
+    gap: 30px;
+  }
+  .landing-section h2 {
+    font-size: 19vw;
+  }
+  .mission-text {
+    max-width: 100%;
+  }
+  .asterisk {
+    font-size: 48px;
+    margin-bottom: 20px;
+  }
+  .mission-text > p:first-of-type {
+    font-size: 20px;
+    max-width: 90%;
+  }
+  .mission-text p.muted {
+    font-size: 12px;
+  }
+  .mission-stats > div {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding-top: 25px;
+    padding-bottom: 0;
+  }
+  .mission-stats > div + div {
+    padding-left: 17px;
+  }
+  .mission-stats b {
+    font-size: 44px;
+  }
+  .mission-stats span {
+    font-size: 6px;
+    letter-spacing: 0.7px;
+  }
+  .section-heading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 25px;
+    padding-top: 40px;
+    padding-bottom: 30px;
+  }
+  .section-heading p {
+    font-size: 11px;
+  }
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+  .feature {
+    min-height: 420px;
+  }
+  .feature-video {
+    grid-column: auto;
+  }
+  .feature-video > div:last-of-type {
+    max-width: 100%;
+  }
+  .feature-video .feature-icon {
+    left: 60%;
+    top: 26%;
+  }
+  .feature-passport > svg {
+    margin-top: 5px;
+  }
+  .feature h3 {
+    font-size: 44px;
+  }
+  .passport-mini {
+    top: 90px;
+  }
+  .capability-strip {
+    font-size: 7px;
+    gap: 18px 25px;
+  }
+  .access-layout {
+    grid-template-columns: 1fr;
+    padding-top: 40px;
+    gap: 40px;
+  }
+  .access p {
+    font-size: 12px;
+  }
+  .access-lines h3 {
+    font-size: 18px;
+  }
+  .access-lines article {
+    gap: 18px;
+  }
+  .final-cta {
+    padding: 50px 6%;
+  }
+  .final-cta > .eyebrow {
+    font-size: 7px;
+  }
+  .final-cta h2 {
+    font-size: 20vw;
+    margin: 30px 0;
+  }
+  .final-cta h2 > span {
+    position: static;
+    font-size: 70px;
+    line-height: 0.5;
+    margin-left: 15px;
+  }
+  .final-cta > .button {
+    font-size: 10px;
+  }
+  .landing-footer {
+    padding: 32px 6%;
+    gap: 25px;
+  }
+  .landing-footer > .brand {
+    width: 100%;
+  }
+  .landing-footer > span:last-child {
+    margin-left: auto;
+    font-size: 8px;
+  }
+  main {
+    padding: 22px 18px 40px;
+  }
+  .workspace-top {
+    padding: 0 15px;
+  }
+  .workspace-top > div {
+    gap: 8px;
+  }
+  .workspace-top > div:first-child > span {
+    font-size: 6px;
+    letter-spacing: 0.5px;
+  }
+  .workspace-top .country-label {
+    display: none;
+  }
+  .connection {
+    font-size: 8px;
+  }
+  .workspace-top .icon-button {
+    width: 28px;
+  }
+  .demo-banner {
+    align-items: flex-start;
+    gap: 10px;
+    line-height: 1.6;
+    font-size: 8px;
+    margin-bottom: 22px;
+  }
+  .demo-banner > span {
+    font-size: 7px;
+    line-height: 1.8;
+    letter-spacing: 0.5px;
+  }
+  .page-title {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-bottom: 23px;
+    gap: 20px;
+  }
+  .page-title .eyebrow {
+    font-size: 7px;
+    margin-bottom: 10px;
+  }
+  .page-title h1 {
+    font-size: 32px;
+    letter-spacing: -1px;
+    line-height: 1.12;
+    overflow-wrap: anywhere;
+  }
+  .page-title p {
+    font-size: 10px;
+    line-height: 1.7;
+  }
+  .page-title > .button {
+    font-size: 10px;
+    min-height: 38px;
+    padding: 10px 16px;
+  }
+  .dashboard-hero {
+    padding: 25px;
+    min-height: 240px;
+    align-items: flex-start;
+  }
+  .dashboard-hero h2 {
+    font-size: 31px;
+    max-width: 210px;
+    line-height: 1.13;
+    margin-bottom: 25px;
+  }
+  .dashboard-hero > .hero-track-number {
+    font-size: 95px;
+    margin: 0;
+    position: absolute;
+    right: 18px;
+    bottom: 25px;
+    opacity: 0.25;
+  }
+  .dashboard-hero .eyebrow {
+    font-size: 7px;
+  }
+  .hero-track-number span {
+    display: none;
+  }
+  .stat-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 11px;
+  }
+  .stat-grid.three {
+    grid-template-columns: 1fr;
+  }
+  .stat {
+    padding: 18px;
+  }
+  .stat strong {
+    font-size: 34px;
+    margin: 18px 0 10px;
+  }
+  .stat .eyebrow {
+    font-size: 7px;
+    letter-spacing: 0.7px;
+  }
+  .stat p {
+    font-size: 8px;
+    line-height: 1.7;
+  }
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .panel-pad {
+    padding: 20px;
+  }
+  .panel h2 {
+    font-size: 18px;
+  }
+  .panel-title .eyebrow {
+    font-size: 7px;
+  }
+  .chart {
+    margin-top: 12px;
+  }
+  .chart-footer {
+    font-size: 8px;
+  }
+  .wellbeing > svg {
+    margin-bottom: 20px;
+  }
+  .wellbeing h2 {
+    font-size: 23px;
+  }
+  .activity-row {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .activity-row strong {
+    font-size: 11px;
+  }
+  .activity-row small {
+    font-size: 9px;
+  }
+  .activity-row .pill {
+    font-size: 6px;
+    padding: 4px 6px;
+  }
+  .activity-row b {
+    font-size: 15px;
+  }
+  .activity-icon {
+    width: 30px;
+    height: 30px;
+  }
+  .workspace-footer {
+    padding: 20px 18px;
+    font-size: 6px;
+    letter-spacing: 0.8px;
+    gap: 20px;
+  }
+  .workspace-footer > span:last-child {
+    max-width: 120px;
+    text-align: right;
+  }
+  .passport-layout {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .digital-passport {
+    padding: 25px;
+    min-height: 360px;
+  }
+  .digital-passport h2 {
+    font-size: 31px;
+  }
+  .passport-id small {
+    font-size: 7px;
+  }
+  .timeline article {
+    gap: 18px;
+    padding-left: 20px;
+  }
+  .timeline time {
+    min-width: 70px;
+    font-size: 8px;
+  }
+  .timeline h3 {
+    font-size: 12px;
+  }
+  .timeline p {
+    font-size: 10px;
+  }
+  .week-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .day-card {
+    padding: 17px;
+    gap: 22px;
+  }
+  .day-card h3 {
+    font-size: 16px;
+  }
+  .day-card p {
+    font-size: 10px;
+  }
+  .day-card > .eyebrow {
+    font-size: 8px;
+  }
+  .plan-checks {
+    gap: 17px;
+  }
+  .recovery-banner {
+    padding: 23px;
+    gap: 18px;
+    align-items: flex-start;
+  }
+  .recovery-banner > svg {
+    width: 29px;
+  }
+  .recovery-banner h2 {
+    font-size: 17px;
+  }
+  .recovery-banner p {
+    font-size: 10px;
+  }
+  .recovery-stages {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 25px 12px;
+  }
+  .recovery-stages > div:nth-child(3)::before {
+    display: none;
+  }
+  .recovery-stages strong {
+    font-size: 9px;
+  }
+  .filter-pills {
+    gap: 6px;
+  }
+  .filter-pills button {
+    font-size: 9px;
+    padding: 9px 10px;
+  }
+  .search-box {
+    width: 100%;
+    margin-top: 7px;
+  }
+  .search-box input {
+    width: 100%;
+  }
+  .opportunities-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .opportunity-card {
+    padding: 23px;
+  }
+  .opportunity-meta > span:last-child {
+    font-size: 7px;
+  }
+  .opportunity-card h2 {
+    font-size: 25px;
+  }
+  .portfolio-callout {
+    padding: 24px;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .portfolio-callout > svg {
+    width: 30px;
+  }
+  .portfolio-callout h2 {
+    font-size: 21px;
+  }
+  .portfolio-callout p {
+    font-size: 10px;
+  }
+  .career-grid {
+    grid-template-columns: 1fr;
+  }
+  .career-card {
+    padding: 25px;
+  }
+  .formula-row {
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .formula-row > b {
+    font-size: 25px;
+    min-width: 48px;
+  }
+  .formula-row p {
+    font-size: 10px;
+  }
+  .formula-row > span {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .formula-row h3 {
+    font-size: 14px;
+  }
+  .audit-row {
+    font-size: 10px;
+    align-items: center;
+  }
+  .audit-row small {
+    font-size: 8px;
+    text-align: right;
+    max-width: 100px;
+  }
+  .lab-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .video-placeholder {
+    min-height: 350px;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+  .field {
+    font-size: 11px;
+  }
+  .field input,
+  .field textarea,
+  .field select {
+    font-size: 13px;
+  }
+  .field.checkbox {
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .notice {
+    font-size: 10px;
+    padding: 14px 17px;
+  }
+  .modal {
+    padding: 24px;
+  }
+  .modal-head h2 {
+    font-size: 25px;
+  }
+  .modal-actions {
+    gap: 10px;
+  }
+  .modal-actions .button {
+    font-size: 10px;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  .toast {
+    bottom: 15px;
+    right: 15px;
+    left: 15px;
+    max-width: none;
+    font-size: 12px;
+    padding: 16px;
+  }
+  .toast span {
+    flex: 1;
+  }
+  .inline-actions .button {
+    font-size: 10px;
+  }
+  .saved-plan .panel-title h3 {
+    font-size: 12px;
+  }
+  .benchmark-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .benchmark-grid article {
+    padding: 18px;
+  }
+  .benchmark-grid strong {
+    margin: 10px 0;
+  }
+}
