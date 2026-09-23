@@ -84,7 +84,7 @@ class AthleteApi(context: Context) {
     val vault = AthleteVault(context)
     private val config = context.getSharedPreferences("connection", Context.MODE_PRIVATE)
     var baseUrl: String
-        get() = config.getString("url", "http://10.0.2.2:4000")!!
+        get() = config.getString("url", "https://one-nation-one-athelete.onrender.com")!!
         set(value) {
             config.edit().putString("url", value.trimEnd('/')).apply()
         }

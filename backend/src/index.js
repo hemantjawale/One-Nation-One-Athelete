@@ -5,6 +5,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -63,10 +64,12 @@ app.use("/api", (_req, res) =>
   res.status(404).json({ error: "Endpoint not found" }),
 );
 const frontend = path.resolve(root, "../frontend/dist");
-app.use(express.static(frontend));
-app.get("/{*path}", (_req, res) =>
-  res.sendFile(path.join(frontend, "index.html")),
-);
+if (existsSync(frontend)) {
+  app.use(express.static(frontend));
+  app.get("/{*path}", (_req, res) =>
+    res.sendFile(path.join(frontend, "index.html")),
+  );
+}
 app.use((err, _req, res, _next) => {
   if (err instanceof z.ZodError)
     return res
