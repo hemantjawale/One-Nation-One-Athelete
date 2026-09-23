@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
@@ -36,24 +37,21 @@ const db = await createStore(directory, process.env.MONGODB_URI);
 await seedOpportunities(db);
 const app = express();
 app.use(
-  helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }),
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: false,
+  }),
+);
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  }),
 );
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use("/api", rateLimit({ windowMs: 60000, limit: 500 }));
-app.use("/api", (req, res, next) => {
-  const origins = [
-    process.env.APP_ORIGIN || "http://localhost:5173",
-    `${req.protocol}://${req.get("host")}`,
-  ];
-  if (
-    !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-    req.headers.origin &&
-    !origins.includes(req.headers.origin)
-  )
-    return res.status(403).json({ error: "Origin not allowed" });
-  next();
-});
 app.get("/api/health", (_req, res) => res.json({ ok: true, storage: db.mode }));
 app.use("/api/auth", authRoutes(db, secret));
 app.use("/api", authenticate(db, secret));
