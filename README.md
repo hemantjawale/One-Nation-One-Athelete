@@ -1,95 +1,231 @@
 # One Nation, One Athlete
 
-An athlete platform built with **separate React/Vite frontend and Express backend packages**, MongoDB Atlas support, and the supplied scroll-driven sporting footage.
+A unified athletic development, talent discovery, and sports performance platform featuring a **React 19 / Vite web client**, an **Express 5 REST API** with dual MongoDB Atlas / local storage, and a **native Kotlin Android mobile application**.
+
+![System Architecture](sysarch.png)
+
+---
+
+## Repository Structure
 
 ```text
-frontend/                 React + Vite application
-  src/pages/              One file per workspace page
-  src/components/         Forms, dialogs, charts, and brand
-  src/lib/                API client, offline queue, pose inference
-  src/styles/             Landing, workspace, and responsive styles
-  public/30Frames/        Supplied original frames
-  public/frames/          Optimized WebP frames
-  tests/                  Browser workflow tests
-backend/                  Independent Express application
-  src/routes/             Auth, athletes, records, opportunities, files
-  src/services/           Storage, intelligence, research, schemas, seed
-  src/middleware/         Authentication and session handling
-  tests/                  Isolated API and research tests
-docs/                     Architecture, features, and limitations
-scripts/                  Asset optimization
-30Frames/                 Original supplied assets, preserved
-sysarch.png               Supplied architecture reference, preserved
+.
+├── frontend/                 # React 19 + Vite web application
+│   ├── src/
+│   │   ├── pages/            # Workspace views (Dashboard, VideoLab, Passport, etc.)
+│   │   ├── components/       # Modals, forms, charts, navigation, and brand
+│   │   ├── lib/              # API client, offline queue, MediaPipe pose detection
+│   │   └── styles/           # Frame animations, design tokens, responsive styles
+│   ├── public/
+│   │   ├── 30Frames/         # Original frame sequence assets
+│   │   └── frames/           # Optimized WebP animation frames
+│   └── tests/                # Playwright end-to-end browser tests
+│
+├── backend/                  # Express 5 REST API service
+│   ├── src/
+│   │   ├── routes/           # Auth, athletes, records, opportunities, files
+│   │   ├── services/         # Dual store (Mongo/JSON), rules engine, seed
+│   │   └── middleware/       # JWT auth, sessions, cookies, rate limiting
+│   ├── tests/                # Node test runner integration suite
+│   └── .data/                # Local database fallback and file uploads
+│
+├── MobileApp/                # Native Kotlin Android application (API 24+)
+│   ├── app/                  # Application code (Coroutines, OkHttp, Keystore)
+│   ├── gradle/               # Gradle wrapper and build configuration
+│   └── README.md             # Mobile-specific setup and architecture
+│
+├── 30Frames/                 # Original high-resolution sporting footage frames
+├── sysarch.png               # High-level architecture diagram
+├── package.json              # Root workspace coordinator
+└── README.md                 # Project documentation
 ```
 
-## Start both packages
+---
 
-Use Node.js 22.12+ or a newer supported version.
+## Core Capabilities
 
-```powershell
-cd "D:\One Nation One Athelete"
+- **Digital Athlete Passport & Profile**: Centralized sporting identity, verified milestones, competition records, granular privacy controls, and one-click JSON data export.
+- **AI Motion & Pose Analysis (Video Lab)**: In-browser Google MediaPipe pose estimation extracting biomechanical joint angles, posture metrics, and movement symmetry from uploaded or recorded video.
+- **Training & Calendar Log**: Session management, drill logs, intensity ratings, and offline queueing with idempotency keys for automatic background sync.
+- **Performance & Recovery Monitoring**: Readiness assessments, sleep/soreness logs, wellbeing trends, and transparent return-to-play guidelines.
+- **Opportunity & Sponsorship Engine**: Rule-based matching connecting athletes to trials, tournaments, and scholarships with clear eligibility explanations.
+- **Financial & Career Tracking**: Transparent expense logging, receipt uploads, funding tracker, and career goal setting.
+- **Role-Based Workspaces**: Dedicated perspectives for **Athletes**, **Coaches**, **Medical Specialists**, and **Event Organisers** with verification workflows and fairness metrics.
+- **Native Android Companion**: Kotlin client with encrypted local storage (Android Keystore AES-GCM), native dashboards, offline session queuing, and media uploads.
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- **Node.js**: v22.12.0 or higher
+- **npm**: v10.0.0 or higher
+- *(Optional for Android)*: **Android Studio** (Koala / Ladybug or newer) with Android SDK 37 (API 24+ minimum), JDK 17+
+
+### 1. Install & Run Everything (Root)
+
+From the project root:
+
+```bash
+# 1. Install root dependencies and setup frontend & backend packages
 npm install
 npm run setup
+
+# 2. Start both backend (port 4000) and frontend (port 5173) concurrently
 npm run dev
 ```
 
-Open **http://localhost:5173**. API: **http://localhost:4000/api/health**.
+- **Frontend App**: [http://localhost:5173](http://localhost:5173)
+- **Backend API**: [http://localhost:4000](http://localhost:4000)
+- **API Health Check**: [http://localhost:4000/api/health](http://localhost:4000/api/health)
 
-The **Explore demo** footer button creates your own isolated sample account. Or register a real athlete, coach, organiser, or medical account. Data persists across restarts. No credentials are needed for local development mode.
+Use the **Explore demo** button in the footer to create an isolated demo account instantly, or register a new Athlete, Coach, Medical Specialist, or Organiser account.
 
-## Run independently
+---
 
-Backend terminal:
+## Running Components Individually
 
-```powershell
+### Backend
+
+```bash
 cd backend
 npm install
 npm run dev
 ```
 
-Frontend terminal:
+The server starts on port `4000` with file watching enabled (`node --watch src/index.js`).
 
-```powershell
+### Frontend
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Each folder has its own `package.json`, lockfile, scripts, dependencies, and environment example. The root package only coordinates development and tools.
+The Vite dev server starts on port `5173` and proxies `/api` calls to `http://localhost:4000`.
 
-## MongoDB Atlas
+### Native Android Mobile App
 
-Copy `backend/.env.example` to `backend/.env`, set `MONGODB_URI` to your Atlas connection string including a database name, configure an Atlas database user and your machine's IP access, then restart the backend. Never commit credentials.
+1. Open the [`MobileApp`](MobileApp/) directory in **Android Studio**.
+2. Let Gradle sync dependencies (Gradle 9.5, AGP 9.3.3).
+3. Ensure the backend server is running (`npm start --prefix backend` or `npm run dev`).
+4. On the welcome screen of the app, configure **Connection settings**:
+   - **Android Emulator**: `http://10.0.2.2:4000` *(default)*
+   - **Physical Device**: `http://<YOUR_COMPUTER_LAN_IP>:4000` *(same Wi-Fi network)*
+   - **Production Backend**: `https://your-api-domain.com`
+5. Build and run on your target device:
 
-```dotenv
-MONGODB_URI=mongodb+srv://YOUR_USER:YOUR_PASSWORD@YOUR_CLUSTER/one_nation_one_athlete
-JWT_SECRET=REPLACE_WITH_A_LONG_RANDOM_SECRET
-APP_ORIGIN=http://localhost:5173
-PORT=4000
+```bash
+cd MobileApp
+./gradlew :app:assembleDebug
+# On Windows:
+# gradlew.bat :app:assembleDebug
 ```
 
-Without `MONGODB_URI`, the development store uses `backend/.data/database.json`. A configured but invalid Atlas connection fails startup instead of falling back. Uploads reside in `backend/.data/uploads` in either mode. Local data is not automatically migrated to Atlas.
+For more mobile details, see [MobileApp/README.md](MobileApp/README.md).
 
-## Verify and build
+---
 
-```powershell
-npm run lint --prefix frontend
+## Environment Configuration
+
+### Backend (`backend/.env`)
+
+Copy `backend/.env.example` to `backend/.env`:
+
+```ini
+PORT=4000
+MONGODB_URI=mongodb+srv://<USER>:<PASSWORD>@<CLUSTER>/one_nation_one_athlete
+JWT_SECRET=your_long_random_jwt_secret_key_here
+APP_ORIGIN=http://localhost:5173
+```
+
+- **`MONGODB_URI`**: Optional. If omitted, the backend runs in standalone mode using a file-based JSON store at `backend/.data/database.json`. If provided, it connects to your MongoDB Atlas cluster.
+- **`JWT_SECRET`**: Required in production. In development, a random persistent key is generated in `backend/.data/.secret` if left unset.
+- **`APP_ORIGIN`**: The allowed origin for CORS cookies and credentials (e.g. `http://localhost:5173`).
+- **`DATA_DIR`**: Optional custom directory for persistent database and file uploads (default: `backend/.data`).
+
+### Frontend (`frontend/.env`)
+
+Copy `frontend/.env.example` to `frontend/.env`:
+
+```ini
+# Development reverse proxy target
+VITE_API_PROXY=http://localhost:4000
+
+# Optional: direct API URL for production or custom hosted API
+# VITE_API_BASE=https://your-api-domain.com
+```
+
+---
+
+## Testing & Quality Assurance
+
+### Backend Tests
+
+Runs the native Node test runner test suite covering auth, records, opportunities, RBAC, and file uploads:
+
+```bash
 npm test
-npm run build
-# With npm run dev already running:
+# Or directly from backend:
+npm test --prefix backend
+```
+
+### Frontend Linting
+
+```bash
+npm run lint --prefix frontend
+```
+
+### End-to-End Browser Tests (Playwright)
+
+With the dev server running:
+
+```bash
+# Install Chromium browser binaries if running for the first time
 npm exec --prefix frontend -- playwright install chromium
+
+# Run e2e tests
 npm run test:e2e
 ```
 
-The video browser test downloads the real MediaPipe model and therefore requires internet. Browser screenshots are written to `frontend/artifacts/`.
+### Android Tests
 
-To serve the production build locally:
+With an Android emulator or device connected:
 
-```powershell
+```bash
+cd MobileApp
+./gradlew :app:connectedDebugAndroidTest
+```
+
+---
+
+## Production Build & Deployment
+
+### Build the Web Client
+
+```bash
+npm run build
+```
+
+This compiles optimized production assets to `frontend/dist`.
+
+### Serve Production from Express
+
+When `frontend/dist` exists, the Express backend automatically serves the production SPA:
+
+```bash
 npm run build
 npm start --prefix backend
 ```
 
-Express serves the app and API at **http://localhost:4000**. Real production deployment needs an HTTPS origin, `NODE_ENV=production`, `JWT_SECRET`, a database, and persistent uploads. It has not been deployed or connected to Atlas in this workspace.
+Access the combined application and API at `http://localhost:4000`.
 
-See [the project guide](docs/PROJECT_GUIDE.md) for workflows, the architecture mapping, offline behaviour, and the exact scope of the intelligence features.
+---
+
+## License & Attribution
+
+This project is licensed under the MIT License.
+Supplied sporting footage frames and reference materials are preserved under `30Frames/` and `sysarch.png`.
+
