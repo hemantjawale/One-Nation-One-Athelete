@@ -492,6 +492,45 @@ export function deriveMeasurement(sportKey, disciplineOrCategory, _eventOrPositi
 }
 
 /**
+ * Normalizes state names to standard full state names (e.g., Maharastra -> Maharashtra)
+ */
+export function normalizeStateName(stateStr) {
+  if (!stateStr) return "";
+  let clean = String(stateStr).trim().replace(/\s*\((state)\)\s*/gi, "").replace(/\s+state$/gi, "").trim();
+  const s = clean.toLowerCase();
+  if (s === "maharashtra" || s === "maharastra" || s === "mh" || s.startsWith("maharas")) {
+    return "Maharashtra";
+  }
+  if (s === "karnataka" || s === "ka") return "Karnataka";
+  if (s === "tamil nadu" || s === "tamilnadu" || s === "tn") return "Tamil Nadu";
+  if (s === "delhi" || s === "dl") return "Delhi";
+  if (s === "kerala" || s === "kl") return "Kerala";
+  if (s === "haryana" || s === "hr") return "Haryana";
+  if (s === "punjab" || s === "pb") return "Punjab";
+  if (s === "uttar pradesh" || s === "up") return "Uttar Pradesh";
+  if (s === "west bengal" || s === "wb") return "West Bengal";
+  if (s === "gujarat" || s === "gj") return "Gujarat";
+  if (s === "rajasthan" || s === "rj") return "Rajasthan";
+  if (s === "telangana" || s === "tg" || s === "ts") return "Telangana";
+  if (s === "andhra pradesh" || s === "ap") return "Andhra Pradesh";
+  if (s === "odisha" || s === "orissa" || s === "od") return "Odisha";
+  return clean;
+}
+
+/**
+ * Normalizes district names by trimming, stripping trailing "(District)" or "District" labels, and mapping aliases
+ */
+export function normalizeDistrictName(distStr) {
+  if (!distStr) return "";
+  let d = String(distStr).trim();
+  d = d.replace(/\s*\((district|dist)\)\s*/gi, "").replace(/\s+district$/gi, "").trim();
+  const lower = d.toLowerCase();
+  if (lower === "poona" || lower === "pune") return "Pune";
+  if (lower === "bombay city" || lower === "mumbai city" || lower === "mumbai") return "Mumbai";
+  return d;
+}
+
+/**
  * Builds normalized, automatic benchmark comparison filters from an athlete profile
  */
 export function buildPerformanceComparisonFilters(profile, asOfDate = new Date()) {
@@ -507,8 +546,10 @@ export function buildPerformanceComparisonFilters(profile, asOfDate = new Date()
   const event = sp.event || profile.event || "";
   const discipline = sp.discipline || "";
   const gender = profile.gender || "Male";
-  const state = profile.state || "";
-  const district = profile.district || "";
+  const rawState = profile.state || "";
+  const rawDistrict = profile.district || "";
+  const state = normalizeStateName(rawState);
+  const district = normalizeDistrictName(rawDistrict);
   const classification = sp.classification || profile.classification || "Open";
   const weightCategory = sp.weightCategory || "";
 

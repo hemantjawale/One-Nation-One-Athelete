@@ -17,6 +17,7 @@ import {
 } from "../lib/filters";
 import { dateLabel } from "../lib/forms";
 import { exportPdfByType } from "../lib/pdf";
+import { getAuthenticatedUrl } from "../lib/api";
 
 export function JourneySection({
   data,
@@ -340,7 +341,7 @@ export function JourneySection({
                   </p>
                   {r.certificate?.url && (
                     <a
-                      href={r.certificate.url}
+                      href={getAuthenticatedUrl(r.certificate.url)}
                       target="_blank"
                       rel="noreferrer"
                       style={{ fontSize: 11, color: "#e26d40", display: "inline-block", marginTop: 4 }}

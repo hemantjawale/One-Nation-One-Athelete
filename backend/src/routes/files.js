@@ -60,7 +60,11 @@ export function fileRoutes(db, directory) {
     if (f.ownerId !== req.user.id) {
       const p = await db.get("profiles", f.ownerId),
         linked = (await db.list("achievements", { ownerId: f.ownerId })).some(
-          (a) => a.attachmentId === f.id,
+          (a) =>
+            a.attachmentId === f.id ||
+            a.certificate?.publicId === f.id ||
+            (typeof a.certificate?.url === "string" &&
+              a.certificate.url.includes(f.id)),
         );
       if (
         !p ||
@@ -70,6 +74,17 @@ export function fileRoutes(db, directory) {
         !linked
       )
         return res.sendStatus(403);
+    }
+    if (f.content && f.content.startsWith("data:")) {
+      const matches = f.content.match(/^data:([^;]+);base64,(.+)$/);
+      if (matches) {
+        const mimeType = matches[1];
+        const buffer = Buffer.from(matches[2], "base64");
+        return res
+          .type(mimeType)
+          .set("Content-Disposition", `inline; filename="${f.name || f.id}"`)
+          .send(buffer);
+      }
     }
     res
       .type(f.mime)

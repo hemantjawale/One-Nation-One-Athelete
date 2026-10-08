@@ -19,6 +19,7 @@ import {
   TrendingUp,
   Sliders,
   ShieldAlert,
+  Mail,
 } from "lucide-react";
 import { PageTitle, Modal, Actions } from "../components/UI";
 import { today, dateLabel } from "../lib/forms";
@@ -33,6 +34,7 @@ import {
   getWeeklyReview,
   getRealityCheck,
   getTrainingLibrary,
+  sendSundayDigestEmail,
 } from "../lib/api";
 import { EXERCISE_LIBRARY, SPRINT_TRAINING_QUALITIES } from "../lib/trainingKnowledge";
 
@@ -56,6 +58,27 @@ export default function Training() {
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [goalsModalOpen, setGoalsModalOpen] = useState(false);
   const [weeklyReviewData, setWeeklyReviewData] = useState(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  async function handleSendSundayDigest() {
+    setSendingEmail(true);
+    try {
+      const res = await sendSundayDigestEmail(user?.id, user?.email);
+      if (res?.ok) {
+        notify?.(
+          res.isSmtpConfigured
+            ? `Sunday Digest Email sent to ${res.toEmail}!`
+            : `Sunday Digest compiled! (Simulation mode - Add SMTP credentials to .env whenever ready)`
+        );
+      } else {
+        notify?.("Unable to send Sunday digest: " + (res?.error || "Unknown error"), "error");
+      }
+    } catch (err) {
+      notify?.("Error sending Sunday digest email: " + err.message, "error");
+    } finally {
+      setSendingEmail(false);
+    }
+  }
 
   // Check-in form state
   const [checkInStatus, setCheckInStatus] = useState("completed");
@@ -235,7 +258,7 @@ export default function Training() {
         title="Adaptive Sprint Training"
         subtitle="Controlled sports science progression based on your real performance, recovery, and competition goals."
         action={
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
               className="button dark"
               disabled={busy}
@@ -243,6 +266,15 @@ export default function Training() {
             >
               <RotateCcw size={15} />
               Sunday Review & Adaptation
+            </button>
+            <button
+              className="button secondary"
+              disabled={sendingEmail}
+              onClick={handleSendSundayDigest}
+              title="Receive your 7-day upcoming training plan & last week performance review via email"
+            >
+              <Mail size={15} />
+              {sendingEmail ? "Sending Email..." : "Email Sunday Digest"}
             </button>
             <button
               className="button orange"

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import { X, Check, ArrowUpRight, Target, Pencil, Trash2 } from "lucide-react";
 import { forms, field, today } from "../lib/forms";
+import { uploadCertificateFile, deleteCertificateFile, getAuthenticatedUrl } from "../lib/api";
 export function Brand({ light = false, onClick }) {
   return (
     <button
@@ -238,7 +239,7 @@ export function Editor({ kind, row, profile, files, onClose, onSave }) {
                     </small>
                     <div className="cert-buttons">
                       <a
-                        href={values.certificate.url}
+                        href={getAuthenticatedUrl(values.certificate.url)}
                         target="_blank"
                         rel="noreferrer"
                         className="button ghost small"

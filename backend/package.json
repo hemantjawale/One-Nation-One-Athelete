@@ -20,6 +20,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.10.1",
     "multer": "^2.4.0",
+    "nodemailer": "^10.0.16",
     "pdf-parse": "^2.4.5",
     "zod": "^4.6.5"
   }

@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import { PDF_THEME, addBrandHeader, addPageNumbersAndFooters } from "./theme";
+import { getAuthenticatedUrl } from "../api";
 
 async function fetchImageDataUrl(url) {
   if (!url) return null;
@@ -147,7 +148,7 @@ export async function generateAchievementPdf({ profile, achievements = [] }) {
 
     // If certificate is an image, attempt preview embed
     if (a.certificate?.url && (a.certificate.resourceType === "image" || a.certificate.url.match(/\.(jpeg|jpg|png|webp)/i))) {
-      const imgData = await fetchImageDataUrl(a.certificate.url);
+      const imgData = await fetchImageDataUrl(getAuthenticatedUrl(a.certificate.url));
       if (imgData) {
         if (y > 210) {
           doc.addPage();

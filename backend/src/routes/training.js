@@ -2,6 +2,7 @@ import { Router } from "express";
 import { TrainingEngine } from "../services/trainingEngine.js";
 import { EXERCISE_LIBRARY, SPRINT_QUALITIES } from "../services/trainingKnowledge.js";
 import { allRecords } from "./records.js";
+import { sendWeeklyDigestEmail, isSmtpConfigured } from "../services/emailService.js";
 
 export function trainingRoutes(db) {
   const r = Router();
@@ -206,6 +207,63 @@ export function trainingRoutes(db) {
     const sessions = await db.list("sessions", { ownerId: req.user.id });
     const reality = await engine.generateRealityCheck(athlete, sessions);
     res.json(reality);
+  });
+
+  // Trigger / Send Sunday Digest Email (Sends upcoming 7-day training plan + last week performance review)
+  r.post("/send-digest", async (req, res) => {
+    try {
+      const targetUserId = req.body?.athleteId || req.user.id;
+      const userObj = (await db.get("users", targetUserId)) || req.user;
+      const athlete = (await db.get("profiles", targetUserId)) || {};
+      const sessions = await db.list("sessions", { ownerId: targetUserId });
+
+      // Fetch or generate current weekly plan
+      const plan = await engine.generateAdaptiveWeeklyPlan(targetUserId);
+
+      // Fetch or generate last week's performance review
+      let review = null;
+      if (plan && plan.id) {
+        try {
+          review = await engine.generateWeeklyReview(plan.id, targetUserId);
+        } catch (_e) {
+          review = {
+            weekStart: plan.weekStart,
+            weekEnd: plan.weekEnd,
+            plannedSessions: plan.days?.length || 7,
+            completedSessions: plan.days?.filter((d) => d.status === "completed").length || 0,
+            adherencePercentage: Math.round(((plan.days?.filter((d) => d.status === "completed").length || 0) / (plan.days?.length || 7)) * 100),
+            averageRPE: null,
+            trend: "Consistent",
+            recommendation: "Stay consistent with daily warmups, hydration, and neurological recovery.",
+          };
+        }
+      }
+
+      const toEmail = req.body?.email || userObj.email || athlete.email;
+      if (!toEmail) {
+        return res.status(400).json({ error: "No target email address found for athlete." });
+      }
+
+      const result = await sendWeeklyDigestEmail({
+        toEmail,
+        athleteName: athlete.name || userObj.name || "Athlete",
+        review,
+        plan,
+        lastWeekSessions: sessions.slice(-7),
+      });
+
+      res.json({
+        ok: true,
+        emailSent: true,
+        toEmail,
+        mode: result.mode,
+        isSmtpConfigured: isSmtpConfigured(),
+        message: result.message || "Sunday digest sent successfully.",
+      });
+    } catch (err) {
+      console.error("Error sending Sunday digest email:", err);
+      res.status(500).json({ error: err.message || "Failed to send Sunday digest email." });
+    }
   });
 
   return r;

@@ -31,19 +31,12 @@ export function recordRoutes(db) {
     limits: { fileSize: 10 * 1024 * 1024, files: 1 },
   });
 
-  // Certificate upload to Cloudinary
+  // Certificate upload to Cloudinary (with automatic local fallback)
   r.post("/certificates/upload", memUpload.single("certificate"), async (req, res) => {
     try {
       const f = req.file;
       if (!f) {
         return res.status(400).json({ error: "Choose a certificate file to upload." });
-      }
-
-      if (!isCloudinaryConfigured()) {
-        return res.status(400).json({
-          error:
-            "Cloudinary is not configured. Please add the required environment variables (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET).",
-        });
       }
 
       const b = f.buffer;
@@ -70,16 +63,52 @@ export function recordRoutes(db) {
         });
       }
 
-      const result = await uploadCertificate({
-        buffer: b,
-        originalName: f.originalname,
-        mime,
-        athleteId: req.user.id,
-      });
+      let result = null;
+
+      // Try Cloudinary upload if configured
+      if (isCloudinaryConfigured()) {
+        try {
+          result = await uploadCertificate({
+            buffer: b,
+            originalName: f.originalname,
+            mime,
+            athleteId: req.user.id,
+          });
+        } catch (cloudinaryErr) {
+          console.warn("Cloudinary upload failed (e.g. 403 / network), using local fallback:", cloudinaryErr.message || cloudinaryErr);
+        }
+      }
+
+      // Local fallback if Cloudinary isn't configured or returned an error
+      if (!result) {
+        const fileId = "cert-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+        const dataUri = `data:${mime};base64,${b.toString("base64")}`;
+
+        await db.put("files", {
+          id: fileId,
+          ownerId: req.user.id,
+          name: f.originalname.slice(0, 200),
+          size: f.size,
+          mime,
+          notes: "Achievement Certificate (Local Fallback)",
+          analysis: null,
+          content: dataUri,
+        });
+
+        result = {
+          url: dataUri,
+          publicId: fileId,
+          resourceType: isPdf ? "pdf" : "image",
+          format: isPdf ? "pdf" : "jpg",
+          originalName: f.originalname.slice(0, 200),
+          isLocalFallback: true,
+        };
+      }
 
       res.status(201).json(result);
     } catch (err) {
-      res.status(err.status || 500).json({ error: err.message });
+      console.error("Certificate upload error:", err);
+      res.status(500).json({ error: err.message || "Failed to upload certificate file." });
     }
   });
 

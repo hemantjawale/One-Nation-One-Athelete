@@ -1,14 +1,20 @@
-import { buildPerformanceComparisonFilters } from "./sports.js";
+import {
+  buildPerformanceComparisonFilters,
+  normalizeStateName,
+  normalizeDistrictName,
+} from "./sports.js";
 import { AthleticsProvider } from "./providers/AthleticsProvider.js";
 import { BadmintonProvider } from "./providers/BadmintonProvider.js";
 import { MultiSportProvider } from "./providers/MultiSportProvider.js";
 import { InternalBenchmarkProvider } from "./providers/InternalBenchmarkProvider.js";
 import { NationalRecordsPdfProvider } from "./providers/NationalRecordsPdfProvider.js";
+import { MaharashtraStatePdfProvider } from "./providers/MaharashtraStatePdfProvider.js";
 import {
   findOfficialNationalRecord,
   findYouthNationalRecord,
   VERIFIED_AFI_NATIONAL_RECORDS,
 } from "./nationalRecordsPdfParser.js";
+import { findMaharashtraStateBest } from "./maharashtraStateRecordsParser.js";
 
 // In-memory benchmark cache with TTL (15 minutes)
 const CACHE_TTL_MS = 15 * 60 * 1000;
@@ -28,8 +34,8 @@ export function buildCacheKey(filters) {
     filters.ageCategory?.id || "open",
     filters.weightCategory || "none",
     filters.classification || "Open",
-    filters.state || "none",
-    filters.district || "none",
+    normalizeStateName(filters.state) || "none",
+    normalizeDistrictName(filters.district) || "none",
   ];
   return parts.join(":").toLowerCase();
 }
@@ -198,6 +204,7 @@ export class BenchmarkService {
     this.db = db;
     this.providers = [
       new NationalRecordsPdfProvider(),
+      new MaharashtraStatePdfProvider(),
       new AthleticsProvider(),
       new BadmintonProvider(),
       new MultiSportProvider(),
@@ -333,18 +340,21 @@ export class BenchmarkService {
     }
 
     // Segregate records into District, State, and National tiers
+    const normFilterState = normalizeStateName(filters.state);
+    const normFilterDist = normalizeDistrictName(filters.district);
+
     const districtRecords = uniqueRecords.filter((r) => {
       if (r.level !== "district") return false;
-      if (!filters.state || !filters.district) return false;
-      const matchState = (r.state || "").trim().toLowerCase() === filters.state.trim().toLowerCase();
-      const matchDist = (r.district || "").trim().toLowerCase() === filters.district.trim().toLowerCase();
+      if (!normFilterState || !normFilterDist) return false;
+      const matchState = normalizeStateName(r.state).toLowerCase() === normFilterState.toLowerCase();
+      const matchDist = normalizeDistrictName(r.district).toLowerCase() === normFilterDist.toLowerCase();
       return matchState && matchDist;
     });
 
     const stateRecords = uniqueRecords.filter((r) => {
       if (r.level !== "state" && r.level !== "district") return false;
-      if (!filters.state) return false;
-      return (r.state || "").trim().toLowerCase() === filters.state.trim().toLowerCase();
+      if (!normFilterState) return false;
+      return normalizeStateName(r.state).toLowerCase() === normFilterState.toLowerCase();
     });
 
     const nationalRecords = uniqueRecords.filter((r) => {
@@ -419,6 +429,27 @@ export class BenchmarkService {
     }
     if (youthRecordDetails) {
       nationalStats.youthNationalRecord = youthRecordDetails;
+    }
+
+    // Maharashtra State Best (from official MAA PDF)
+    if (normFilterState.toLowerCase() === "maharashtra") {
+      const mahaStateBest = findMaharashtraStateBest({
+        event: filters.event,
+        gender: filters.gender,
+        ageCategory: filters.ageCategory?.id,
+      });
+      if (mahaStateBest) {
+        const msGap =
+          athleteBestMetric !== null && !isNaN(athleteBestMetric)
+            ? lower
+              ? athleteBestMetric - mahaStateBest.performance.value
+              : athleteBestMetric - mahaStateBest.performance.value
+            : null;
+        stateStats.stateRecord = {
+          ...mahaStateBest,
+          gap: msGap !== null ? Number(msGap.toFixed(2)) : null,
+        };
+      }
     }
 
     const allSources = [

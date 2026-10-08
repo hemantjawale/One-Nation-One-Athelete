@@ -473,6 +473,48 @@ function TierCard({ tierName, location, stats, unit, isLowerBetter, personalBest
             </div>
           </div>
         )}
+
+        {/* Official Maharashtra State Best Record (MAA PDF) */}
+        {tierName === "State" && stats.stateRecord && (
+          <div
+            style={{
+              background: "#fefce8",
+              border: "1px solid #fde68a",
+              borderRadius: 6,
+              padding: "10px 12px",
+              marginTop: 12,
+              fontSize: 12,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <strong style={{ color: "#92400e", textTransform: "uppercase", fontSize: 10, letterSpacing: "0.5px" }}>
+                Best State Result (MAA Official)
+              </strong>
+              {stats.stateRecord.source?.url && (
+                <a
+                  href={stats.stateRecord.source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "#b45309", textDecoration: "underline", fontSize: 11, fontWeight: 600 }}
+                  title="Open official Maharashtra Athletics Association PDF"
+                >
+                  View MAA PDF ↗
+                </a>
+              )}
+            </div>
+            <div style={{ color: "#1f2937", fontWeight: 600, fontSize: 13 }}>
+              {stats.stateRecord.athleteName} ({stats.stateRecord.district || "Maharashtra"}) · {stats.stateRecord.performance?.display || `${stats.stateRecord.performance?.value} ${unit}`}
+            </div>
+            <div style={{ color: "#6b7280", fontSize: 11, marginTop: 2 }}>
+              {stats.stateRecord.competition?.name} · {stats.stateRecord.competition?.date} · {stats.stateRecord.competition?.location}
+            </div>
+            {stats.stateRecord.gap !== null && personalBest !== null && (
+              <div style={{ marginTop: 4, fontSize: 11.5, color: stats.stateRecord.gap <= 0 ? "#15803d" : "#b45309", fontWeight: 600 }}>
+                Delta to State Best: {stats.stateRecord.gap > 0 ? "+" : ""}{stats.stateRecord.gap} {unit}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="tier-footer">

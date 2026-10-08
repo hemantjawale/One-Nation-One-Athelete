@@ -2,6 +2,7 @@ import { useOutletContext } from "react-router-dom";
 import { Fingerprint, Trophy, Plus } from "lucide-react";
 import { Brand, PageTitle, Actions, Empty } from "../components/UI";
 import { dateLabel } from "../lib/forms";
+import { getAuthenticatedUrl } from "../lib/api";
 import { ExportMenu } from "../components/ExportMenu";
 import { JourneySection } from "../components/JourneyFilters";
 
@@ -98,7 +99,7 @@ export default function Passport() {
                 </span>
                 {a.certificate?.url ? (
                   <a
-                    href={a.certificate.url}
+                    href={getAuthenticatedUrl(a.certificate.url)}
                     target="_blank"
                     rel="noreferrer"
                   >
@@ -106,7 +107,7 @@ export default function Passport() {
                   </a>
                 ) : a.attachmentId ? (
                   <a
-                    href={"/api/files/" + a.attachmentId + "/content"}
+                    href={getAuthenticatedUrl("/api/files/" + a.attachmentId + "/content")}
                     target="_blank"
                     rel="noreferrer"
                   >

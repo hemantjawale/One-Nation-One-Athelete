@@ -1,8 +1,40 @@
 const BASE = import.meta.env.VITE_API_BASE || "";
-export async function api(path, options = {}) {
-  const token =
+
+export function getToken() {
+  return (
     sessionStorage.getItem("onona-token") ||
-    localStorage.getItem("onona-token");
+    localStorage.getItem("onona-token")
+  );
+}
+
+export function getAuthenticatedUrl(url) {
+  if (!url || typeof url !== "string") return url;
+  if (url.startsWith("data:") || url.startsWith("blob:")) return url;
+
+  const token = getToken();
+  if (!token) return url;
+
+  try {
+    const isRelative = url.startsWith("/");
+    const targetUrl = isRelative ? window.location.origin + url : url;
+    const parsed = new URL(targetUrl);
+
+    if (parsed.pathname.startsWith("/api/") || isRelative) {
+      if (!parsed.searchParams.has("token")) {
+        parsed.searchParams.set("token", token);
+      }
+      return isRelative ? `${parsed.pathname}${parsed.search}${parsed.hash}` : parsed.toString();
+    }
+  } catch {
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}token=${encodeURIComponent(token)}`;
+  }
+
+  return url;
+}
+
+export async function api(path, options = {}) {
+  const token = getToken();
   const response = await fetch(BASE + "/api" + path, {
     credentials: "include",
     ...options,
@@ -96,6 +128,13 @@ export async function importBenchmarks(records) {
 }
 
 // Adaptive Training Plan APIs
+export async function sendSundayDigestEmail(athleteId, email) {
+  return api("/training/send-digest", {
+    method: "POST",
+    body: { athleteId, email },
+  });
+}
+
 export async function getTrainingRoadmap() {
   return api("/training/roadmap");
 }

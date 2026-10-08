@@ -19,6 +19,9 @@ export function authenticate(db, secret) {
       if (!rawToken && req.headers?.authorization?.startsWith("Bearer ")) {
         rawToken = req.headers.authorization.slice(7).trim();
       }
+      if (!rawToken && req.query?.token) {
+        rawToken = String(req.query.token).trim();
+      }
       if (!rawToken) throw Error("No token provided");
       const { id } = jwt.verify(rawToken, secret);
       req.user = await db.get("users", id);

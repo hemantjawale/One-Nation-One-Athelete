@@ -68,7 +68,7 @@ export async function uploadCertificate({
 }
 
 export async function deleteCertificate(publicId, resourceType = "image") {
-  if (!isCloudinaryConfigured() || !publicId) return { ok: true };
+  if (!isCloudinaryConfigured() || !publicId || publicId.startsWith("cert-")) return { ok: true };
   try {
     const client = getCloudinaryClient();
     const result = await client.uploader.destroy(publicId, {
