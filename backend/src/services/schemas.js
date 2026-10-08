@@ -18,9 +18,43 @@ export const stages = [
   "Fitness assessment",
   "Return to play",
 ];
+export const sportProfileSchema = z
+  .object({
+    sport: text,
+    discipline: z.string().max(100).optional(),
+    event: z.string().max(100).optional(),
+    positionGroup: z.string().max(100).optional(),
+    position: z.string().max(100).optional(),
+    format: z.string().max(100).optional(),
+    role: z.string().max(100).optional(),
+    specialization: z.string().max(100).optional(),
+    battingStyle: z.string().max(100).optional(),
+    bowlingStyle: z.string().max(100).optional(),
+    stroke: z.string().max(100).optional(),
+    distance: z.string().max(100).optional(),
+    style: z.string().max(100).optional(),
+    weightCategory: z.string().max(100).optional(),
+    classification: z.string().max(100).optional(),
+    classificationStatus: z
+      .enum(["Self-reported", "Pending Classification", "Officially Classified"])
+      .default("Self-reported")
+      .optional(),
+    measurement: z
+      .object({
+        type: z.string().max(50),
+        unit: z.string().max(20),
+        unitLabel: z.string().max(50).optional(),
+        direction: z.enum(["lower_is_better", "higher_is_better"]),
+        optional: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .optional();
+
 export const profileSchema = z.object({
   name: text,
   sport: text,
+  sportLocked: z.boolean().default(false),
   event: text,
   unit: z.enum(units).default("sec"),
   state: text,
@@ -37,7 +71,27 @@ export const profileSchema = z.object({
   sharePerformance: z.boolean().default(false),
   shareHealth: z.boolean().default(false),
   allowAnalytics: z.boolean().default(false),
+  sportProfile: sportProfileSchema,
 });
+export const certificateSchema = z
+  .object({
+    url: z.string(),
+    publicId: z.string(),
+    resourceType: z.string().optional().default("image"),
+    format: z.string().optional(),
+    originalName: z.string().optional(),
+  })
+  .nullable()
+  .optional();
+
+export const verificationStatuses = [
+  "Self Uploaded",
+  "Pending Verification",
+  "Coach Verified",
+  "Organization Verified",
+  "Officially Verified",
+];
+
 export const schemas = {
   sessions: z.object({
     title: text,
@@ -58,6 +112,8 @@ export const schemas = {
     result: text,
     notes: z.string().max(2000).default(""),
     attachmentId: z.string().optional(),
+    certificate: certificateSchema,
+    verificationStatus: z.enum(verificationStatuses).default("Self Uploaded"),
   }),
   injuries: z.object({
     title: text,

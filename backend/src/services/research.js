@@ -11,7 +11,10 @@ export async function benchmarks(db, p, id) {
   const own = (await db.list("sessions", { ownerId: id })).filter(
       (r) => r.event === p.event && r.unit === p.unit && r.metric > 0,
     ),
-    lower = p.unit === "sec",
+    lower =
+      p.sportProfile?.measurement?.direction
+        ? p.sportProfile.measurement.direction === "lower_is_better"
+        : p.unit === "sec",
     best = own.length
       ? (lower ? Math.min : Math.max)(...own.map((r) => r.metric))
       : null;

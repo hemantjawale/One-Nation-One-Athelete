@@ -1,9 +1,13 @@
 const BASE = import.meta.env.VITE_API_BASE || "";
 export async function api(path, options = {}) {
+  const token =
+    sessionStorage.getItem("onona-token") ||
+    localStorage.getItem("onona-token");
   const response = await fetch(BASE + "/api" + path, {
     credentials: "include",
     ...options,
     headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.body instanceof FormData
         ? {}
         : { "Content-Type": "application/json" }),
@@ -64,3 +68,210 @@ export async function exportData(name = "athlete-passport.json") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+export async function uploadCertificateFile(file) {
+  const formData = new FormData();
+  formData.append("certificate", file);
+  return api("/records/certificates/upload", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function deleteCertificateFile(publicId) {
+  return api(`/records/certificates?publicId=${encodeURIComponent(publicId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getPerformanceComparison() {
+  return api("/performance/compare");
+}
+
+export async function importBenchmarks(records) {
+  return api("/benchmarks/import", {
+    method: "POST",
+    body: records,
+  });
+}
+
+// Adaptive Training Plan APIs
+export async function getTrainingRoadmap() {
+  return api("/training/roadmap");
+}
+
+export async function getTrainingGoals() {
+  return api("/training/goals");
+}
+
+export async function updateTrainingGoals(goals) {
+  return api("/training/goals", {
+    method: "PUT",
+    body: goals,
+  });
+}
+
+export async function getWeeklyPlan(weekStart, source) {
+  const params = [];
+  if (weekStart) params.push(`weekStart=${encodeURIComponent(weekStart)}`);
+  if (source) params.push(`source=${encodeURIComponent(source)}`);
+  const q = params.length > 0 ? `?${params.join("&")}` : "";
+  return api(`/training/plan${q}`);
+}
+
+export async function getWeeklyPlansBoth(weekStart) {
+  const q = weekStart ? `?weekStart=${encodeURIComponent(weekStart)}` : "";
+  return api(`/training/plan/both${q}`);
+}
+
+export async function generateWeeklyPlan(weekStart, force = false) {
+  return api("/training/plan/generate", {
+    method: "POST",
+    body: { weekStart, force },
+  });
+}
+
+export async function checkInSession(planId, dayIndex, data) {
+  return api(`/training/plan/${encodeURIComponent(planId)}/session/${dayIndex}`, {
+    method: "PUT",
+    body: data,
+  });
+}
+
+export async function getWeeklyReview(planId) {
+  return api(`/training/review/${encodeURIComponent(planId)}`);
+}
+
+export async function getRealityCheck() {
+  return api("/training/reality-check");
+}
+
+export async function getTrainingLibrary() {
+  return api("/training/library");
+}
+
+// Coach Module APIs
+export async function getCoachDashboard() {
+  return api("/coach/dashboard");
+}
+
+export async function getCoachAthletes(params = {}) {
+  const query = new URLSearchParams();
+  if (params.search) query.set("search", params.search);
+  if (params.sport && params.sport !== "All") query.set("sport", params.sport);
+  if (params.status && params.status !== "All") query.set("status", params.status);
+  const qStr = query.toString() ? `?${query.toString()}` : "";
+  return api(`/coach/athletes${qStr}`);
+}
+
+export async function getCoachAthleteDetail(athleteId) {
+  return api(`/coach/athletes/${encodeURIComponent(athleteId)}`);
+}
+
+export async function getCoachAthletePerformance(athleteId) {
+  return api(`/coach/athletes/${encodeURIComponent(athleteId)}/performance`);
+}
+
+export async function getCoachAthleteTraining(athleteId) {
+  return api(`/coach/athletes/${encodeURIComponent(athleteId)}/training`);
+}
+
+export async function getCoachAthleteRecovery(athleteId) {
+  return api(`/coach/athletes/${encodeURIComponent(athleteId)}/recovery`);
+}
+
+export async function getCoachAthleteGoals(athleteId) {
+  return api(`/coach/athletes/${encodeURIComponent(athleteId)}/goals`);
+}
+
+export async function updateCoachAthleteGoals(athleteId, goals) {
+  return api(`/coach/athletes/${encodeURIComponent(athleteId)}/goals`, {
+    method: "PUT",
+    body: goals,
+  });
+}
+
+export async function getCoachAthleteRoadmap(athleteId) {
+  return api(`/coach/athletes/${encodeURIComponent(athleteId)}/roadmap`);
+}
+
+export async function getCoachTrainingPlans(params = {}) {
+  const query = new URLSearchParams();
+  if (params.athleteId) query.set("athleteId", params.athleteId);
+  if (params.status) query.set("status", params.status);
+  const qStr = query.toString() ? `?${query.toString()}` : "";
+  return api(`/coach/training-plans${qStr}`);
+}
+
+export async function getCoachTrainingPlan(planId) {
+  return api(`/coach/training-plans/${encodeURIComponent(planId)}`);
+}
+
+export async function createCoachTrainingPlan(plan) {
+  return api("/coach/training-plans", {
+    method: "POST",
+    body: plan,
+  });
+}
+
+export async function updateCoachTrainingPlan(planId, plan) {
+  return api(`/coach/training-plans/${encodeURIComponent(planId)}`, {
+    method: "PUT",
+    body: plan,
+  });
+}
+
+export async function publishCoachTrainingPlan(planId) {
+  return api(`/coach/training-plans/${encodeURIComponent(planId)}/publish`, {
+    method: "POST",
+  });
+}
+
+export async function rescheduleCoachSession(planId, payload) {
+  return api(`/coach/training-plans/${encodeURIComponent(planId)}/reschedule`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function getCoachNotifications() {
+  return api("/coach/notifications");
+}
+
+export async function getCoachProfile() {
+  return api("/coach/profile");
+}
+
+export async function updateCoachProfile(profile) {
+  return api("/coach/profile", {
+    method: "PUT",
+    body: profile,
+  });
+}
+
+export async function getCoachExercises() {
+  return api("/coach/exercises");
+}
+
+// Backwards compatibility aliases
+export async function publishCoachPlan(athleteId, plan) {
+  return api(`/coach/athlete/${encodeURIComponent(athleteId)}/plan`, {
+    method: "POST",
+    body: plan,
+  });
+}
+
+export async function updateCoachGoals(athleteId, goals) {
+  return api(`/coach/athlete/${encodeURIComponent(athleteId)}/goals`, {
+    method: "PUT",
+    body: goals,
+  });
+}
+
+export async function submitCoachOverride(athleteId, payload) {
+  return api(`/coach/athlete/${encodeURIComponent(athleteId)}/override`, {
+    method: "POST",
+    body: payload,
+  });
+}
+

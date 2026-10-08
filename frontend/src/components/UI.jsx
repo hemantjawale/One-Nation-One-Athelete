@@ -134,13 +134,51 @@ export function Editor({ kind, row, profile, files, onClose, onSave }) {
         ...config.defaults,
         date: today(),
         ...(kind === "sessions"
-          ? { event: profile.event, unit: profile.unit }
+          ? {
+              event: profile.sportProfile?.event || profile.event,
+              unit: profile.sportProfile?.measurement?.unit || profile.unit,
+            }
           : {}),
       },
     ),
     [busy, setBusy] = useState(false),
+    [uploadingCert, setUploadingCert] = useState(false),
+    [certError, setCertError] = useState(""),
     [error, setError] = useState("");
+  const fileInputRef = useRef(null);
+
   const update = (key, v) => setValues({ ...values, [key]: v });
+
+  async function handleCertificateSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      setCertError("Certificate file size exceeds 10MB limit.");
+      return;
+    }
+
+    setUploadingCert(true);
+    setCertError("");
+    try {
+      const uploaded = await uploadCertificateFile(file);
+      update("certificate", uploaded);
+      update("verificationStatus", "Self Uploaded");
+    } catch (err) {
+      setCertError(err.message || "Failed to upload certificate.");
+    } finally {
+      setUploadingCert(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function handleRemoveCertificate() {
+    if (values.certificate?.publicId) {
+      deleteCertificateFile(values.certificate.publicId).catch(() => {});
+    }
+    update("certificate", null);
+  }
+
   return (
     <Modal
       title={(row ? "Edit " : "Add ") + config.title.toLowerCase()}
@@ -170,24 +208,115 @@ export function Editor({ kind, row, profile, files, onClose, onSave }) {
             />
           ))}
           {kind === "achievements" && (
-            <label className="field wide">
-              <span>Supporting certificate</span>
-              <select
-                value={values.attachmentId || ""}
-                onChange={(e) =>
-                  update("attachmentId", e.target.value || undefined)
-                }
-              >
-                <option value="">No certificate attached</option>
-                {files
-                  .filter((f) => !f.mime.startsWith("video/"))
-                  .map((f) => (
-                    <option value={f.id} key={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <div className="field wide certificate-field-container">
+              <span className="field-label">Certificate / Proof (Cloudinary)</span>
+
+              {values.certificate?.url ? (
+                <div className="certificate-upload-card">
+                  <div className="cert-thumb-preview">
+                    {values.certificate.resourceType === "image" ||
+                    values.certificate.url.match(/\.(jpg|jpeg|png|webp)/i) ? (
+                      <img
+                        src={values.certificate.url}
+                        alt="Certificate"
+                        className="cert-img"
+                      />
+                    ) : (
+                      <div className="cert-pdf-badge">PDF</div>
+                    )}
+                  </div>
+
+                  <div className="cert-meta">
+                    <strong>
+                      {values.certificate.originalName || "Uploaded Certificate"}
+                    </strong>
+                    <small>
+                      Status:{" "}
+                      <span className="pill small">
+                        {values.verificationStatus || "Self Uploaded"}
+                      </span>
+                    </small>
+                    <div className="cert-buttons">
+                      <a
+                        href={values.certificate.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="button ghost small"
+                      >
+                        <ArrowUpRight size={13} /> View ↗
+                      </a>
+                      <button
+                        type="button"
+                        className="button ghost small"
+                        disabled={uploadingCert}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        Replace
+                      </button>
+                      <button
+                        type="button"
+                        className="button danger small"
+                        disabled={uploadingCert}
+                        onClick={handleRemoveCertificate}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="cert-upload-prompt">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    style={{ display: "none" }}
+                    accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={handleCertificateSelect}
+                  />
+                  <button
+                    type="button"
+                    className="button ghost wide"
+                    disabled={uploadingCert}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {uploadingCert
+                      ? "Uploading to Cloudinary…"
+                      : "Upload Certificate / Proof (JPG, PNG, PDF)"}
+                  </button>
+                  <small className="field-hint">
+                    Accepted formats: JPG, JPEG, PNG, WEBP, PDF · Max 10MB
+                  </small>
+                </div>
+              )}
+
+              {certError && (
+                <div className="error" style={{ marginTop: 8 }}>
+                  {certError}
+                </div>
+              )}
+
+              {/* Legacy fallback attachment selector */}
+              {files.filter((f) => !f.mime.startsWith("video/")).length > 0 && !values.certificate && (
+                <label style={{ marginTop: 12, display: "block" }}>
+                  <small style={{ color: "#81946a" }}>Or select from locally stored documents:</small>
+                  <select
+                    value={values.attachmentId || ""}
+                    onChange={(e) =>
+                      update("attachmentId", e.target.value || undefined)
+                    }
+                  >
+                    <option value="">No local file selected</option>
+                    {files
+                      .filter((f) => !f.mime.startsWith("video/"))
+                      .map((f) => (
+                        <option value={f.id} key={f.id}>
+                          {f.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
+            </div>
           )}
           {kind === "plans" &&
             values.days.map((d, i) => (

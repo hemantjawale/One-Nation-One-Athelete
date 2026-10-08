@@ -1,8 +1,10 @@
 import { useOutletContext } from "react-router-dom";
-import { Fingerprint, Trophy, Plus, Download } from "lucide-react";
+import { Fingerprint, Trophy, Plus } from "lucide-react";
 import { Brand, PageTitle, Actions, Empty } from "../components/UI";
 import { dateLabel } from "../lib/forms";
-import { exportData } from "../lib/api";
+import { ExportMenu } from "../components/ExportMenu";
+import { JourneySection } from "../components/JourneyFilters";
+
 export default function Passport() {
   const { data, user, add, remove, notify } = useOutletContext(),
     p = data.profile;
@@ -13,15 +15,13 @@ export default function Passport() {
         title="Your athlete passport"
         subtitle="A portable story of your performance, achievements, and growth."
         action={
-          <button
-            className="button dark"
-            onClick={() =>
-              exportData().catch((e) => notify(e.message, "error"))
-            }
-          >
-            <Download size={17} />
-            Export passport
-          </button>
+          <ExportMenu
+            user={user}
+            data={data}
+            notify={notify}
+            pageContext="passport"
+            buttonLabel="Export"
+          />
         }
       />
       <div className="passport-layout">
@@ -34,9 +34,13 @@ export default function Passport() {
           <h2>{p.name}</h2>
           <div className="passport-details">
             <div>
-              <small>DISCIPLINE</small>
+              <small>SPORT & EVENT</small>
               <strong>
-                {p.sport} · {p.event}
+                {p.sportProfile?.discipline
+                  ? `${p.sport} · ${p.sportProfile.discipline} · ${p.event}`
+                  : p.sportProfile?.positionGroup
+                    ? `${p.sport} · ${p.sportProfile.positionGroup} · ${p.event}`
+                    : `${p.sport} · ${p.event}`}
               </strong>
             </div>
             <div>
@@ -46,8 +50,13 @@ export default function Passport() {
               </strong>
             </div>
             <div>
-              <small>CATEGORY</small>
-              <strong>{p.classification}</strong>
+              <small>CATEGORY / CLASSIFICATION</small>
+              <strong>
+                {p.sportProfile?.classification || p.classification || "Open"}
+                {p.sportProfile?.classificationStatus
+                  ? ` (${p.sportProfile.classificationStatus})`
+                  : ""}
+              </strong>
             </div>
             <div>
               <small>VERIFIED ACHIEVEMENTS</small>
@@ -84,10 +93,18 @@ export default function Passport() {
                 </small>
                 <span className="pill">
                   {a.verified
-                    ? "Verified by " + a.verifiedBy
-                    : "Awaiting coach verification"}
+                    ? "Verified by " + (a.verifiedBy || "Coach")
+                    : a.verificationStatus || "Awaiting coach verification"}
                 </span>
-                {a.attachmentId && (
+                {a.certificate?.url ? (
+                  <a
+                    href={a.certificate.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View certificate proof ↗
+                  </a>
+                ) : a.attachmentId ? (
                   <a
                     href={"/api/files/" + a.attachmentId + "/content"}
                     target="_blank"
@@ -95,7 +112,7 @@ export default function Passport() {
                   >
                     View certificate ↗
                   </a>
-                )}
+                ) : null}
               </div>
               <Actions
                 edit={() => add("achievements", a)}
@@ -108,30 +125,8 @@ export default function Passport() {
           )}
         </section>
       </div>
-      <section className="panel panel-pad">
-        <h2>Your journey, in context</h2>
-        <div className="timeline">
-          {[...data.sessions, ...data.achievements, ...data.injuries]
-            .sort((a, b) => b.date.localeCompare(a.date))
-            .map((r) => (
-              <article key={r.id}>
-                <i />
-                <time>{dateLabel(r.date)}</time>
-                <div>
-                  <span className="eyebrow">{r.kind}</span>
-                  <h3>{r.title}</h3>
-                  <p>
-                    {r.result ||
-                      r.stage ||
-                      (r.metric
-                        ? `${r.event} · ${r.metric} ${r.unit}`
-                        : `${r.duration} minutes of work`)}
-                  </p>
-                </div>
-              </article>
-            ))}
-        </div>
-      </section>
+
+      <JourneySection data={data} user={user} notify={notify} />
     </>
   );
 }

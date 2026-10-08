@@ -2,44 +2,68 @@ import { Router } from "express";
 import { unlink } from "node:fs/promises";
 import path from "node:path";
 import { profileSchema } from "../services/schemas.js";
+import { normalizeProfile } from "../services/sports.js";
 import { insights, plan } from "../services/intelligence.js";
 import { benchmarks, fairness } from "../services/research.js";
+import { BenchmarkService } from "../services/benchmarkService.js";
 import { safeUser, cookieOptions } from "../middleware/auth.js";
 import { allRecords, audit } from "./records.js";
 export function athleteRoutes(db, uploads) {
   const r = Router();
-  const defaultProfile = (u) => ({
-    name: u.name,
-    sport: "Athletics",
-    event: "100m",
-    unit: "sec",
-    state: "",
-    district: "",
-    birthDate: "",
-    gender: "Prefer not to say",
-    classification: "Open",
-    equipment: "Open ground",
-    target: 12,
-    goal: "",
-    education: "",
-    competitionDate: "",
-    coachId: "",
-    sharePerformance: false,
-    shareHealth: false,
-    allowAnalytics: false,
-  });
+  const benchmarkService = new BenchmarkService(db);
+  const defaultProfile = (u) =>
+    normalizeProfile({
+      name: u.name,
+      sport: "Athletics",
+      event: "100m",
+      unit: "sec",
+      state: "",
+      district: "",
+      birthDate: "",
+      gender: "Prefer not to say",
+      classification: "Open",
+      equipment: "Open ground",
+      target: 12,
+      goal: "",
+      education: "",
+      competitionDate: "",
+      coachId: "",
+      sharePerformance: false,
+      shareHealth: false,
+      allowAnalytics: false,
+    });
   r.get("/me", (req, res) =>
     res.json({ user: safeUser(req.user), storage: db.mode }),
   );
-  r.get("/profile", async (req, res) =>
-    res.json(
-      (await db.get("profiles", req.user.id)) || defaultProfile(req.user),
-    ),
-  );
+  r.get("/profile", async (req, res) => {
+    const raw =
+      (await db.get("profiles", req.user.id)) || defaultProfile(req.user);
+    res.json(normalizeProfile(raw));
+  });
   r.put("/profile", async (req, res) => {
-    const p = profileSchema.parse(req.body);
+    const oldProfile = await db.get("profiles", req.user.id);
+    const normalized = normalizeProfile(req.body);
+    const p = profileSchema.parse(normalized);
+
+    // Enforce that athlete cannot change sport once sport has been selected and locked
+    if (oldProfile?.sportLocked && p.sport && p.sport !== oldProfile.sport) {
+      return res.status(400).json({
+        error: "Your sport has been permanently locked and cannot be changed.",
+      });
+    }
+
+    if (oldProfile?.sportLocked) {
+      p.sport = oldProfile.sport;
+      p.sportLocked = true;
+    } else if (req.body.sportLocked || p.sportLocked) {
+      p.sportLocked = true;
+    }
+
     if (p.coachId) {
-      const coach = await db.get("users", p.coachId.toLowerCase());
+      let coach = await db.get("users", p.coachId.toLowerCase());
+      if (!coach) {
+        coach = (await db.list("users", { id: p.coachId }))[0];
+      }
       if (!coach || !["coach", "medical"].includes(coach.role))
         return res
           .status(400)
@@ -53,6 +77,25 @@ export function athleteRoutes(db, uploads) {
       id: req.user.id,
       ownerId: req.user.id,
     });
+
+    // Invalidate benchmark comparison cache if comparison-relevant fields changed
+    const relevantChanged =
+      !oldProfile ||
+      oldProfile.sport !== row.sport ||
+      oldProfile.event !== row.event ||
+      oldProfile.birthDate !== row.birthDate ||
+      oldProfile.gender !== row.gender ||
+      oldProfile.state !== row.state ||
+      oldProfile.district !== row.district ||
+      oldProfile.classification !== row.classification ||
+      oldProfile.sportProfile?.weightCategory !== row.sportProfile?.weightCategory ||
+      oldProfile.sportProfile?.discipline !== row.sportProfile?.discipline ||
+      oldProfile.sportProfile?.format !== row.sportProfile?.format;
+
+    if (relevantChanged) {
+      benchmarkService.invalidateCache();
+    }
+
     await audit(db, req.user, "Profile and consent updated", "profile");
     res.json(row);
   });
@@ -61,6 +104,28 @@ export function athleteRoutes(db, uploads) {
       s = insights(p, await allRecords(db, req.user.id));
     res.json({ ...s, plan: plan(p, s) });
   });
+
+  // Automatic Sport-Aware Performance Comparison Endpoint
+  r.get("/performance/compare", async (req, res) => {
+    const raw = (await db.get("profiles", req.user.id)) || defaultProfile(req.user);
+    const profile = normalizeProfile(raw);
+    const sessions = await db.list("sessions", { ownerId: req.user.id });
+    const comparison = await benchmarkService.getComparison(profile, sessions);
+    res.json(comparison);
+  });
+
+  // Admin Benchmark Bulk Import Endpoint
+  r.post("/benchmarks/import", async (req, res) => {
+    const records = Array.isArray(req.body) ? req.body : req.body.records || [];
+    const result = await benchmarkService.importRecords(records);
+    res.status(201).json(result);
+  });
+
+  // Official AFI National Records (Extracted directly from public/records/National/*.pdf)
+  r.get("/benchmarks/national-records", (_req, res) => {
+    res.json(benchmarkService.getNationalRecordsCatalog());
+  });
+
   r.get("/benchmarks", async (req, res) =>
     res.json(
       await benchmarks(
@@ -148,6 +213,7 @@ export function athleteRoutes(db, uploads) {
     const updated = await db.put(req.params.kind, {
       ...row,
       verified: true,
+      verificationStatus: "Coach Verified",
       verifiedBy: req.user.name,
       verifiedAt: new Date().toISOString(),
     });

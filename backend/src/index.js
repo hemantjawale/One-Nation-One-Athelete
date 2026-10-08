@@ -12,13 +12,15 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import multer from "multer";
 import { createStore } from "./services/store.js";
-import { seedOpportunities } from "./services/seed.js";
+import { seedOpportunities, seedBenchmarks } from "./services/seed.js";
 import { authenticate } from "./middleware/auth.js";
 import { authRoutes } from "./routes/auth.js";
 import { recordRoutes } from "./routes/records.js";
 import { athleteRoutes } from "./routes/athletes.js";
 import { opportunityRoutes } from "./routes/opportunities.js";
 import { fileRoutes } from "./routes/files.js";
+import { trainingRoutes } from "./routes/training.js";
+import { coachRoutes } from "./routes/coach.js";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
   directory = path.resolve(process.env.DATA_DIR || path.join(root, ".data")),
   uploads = path.join(directory, "uploads");
@@ -36,6 +38,7 @@ if (!secret) {
 }
 const db = await createStore(directory, process.env.MONGODB_URI);
 await seedOpportunities(db);
+await seedBenchmarks(db);
 const app = express();
 app.set("trust proxy", 1);
 app.use(
@@ -59,6 +62,9 @@ app.use("/api/auth", authRoutes(db, secret));
 app.use("/api", authenticate(db, secret));
 app.use("/api/records", recordRoutes(db));
 app.use("/api/files", fileRoutes(db, uploads));
+app.use("/api/training", trainingRoutes(db));
+app.use("/api/coach", coachRoutes(db));
+app.use("/api/coach-hub", coachRoutes(db));
 app.use("/api", athleteRoutes(db, uploads));
 app.use("/api", opportunityRoutes(db));
 app.use("/api", (_req, res) =>

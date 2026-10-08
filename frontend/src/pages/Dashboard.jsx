@@ -44,8 +44,14 @@ export default function Dashboard() {
         <Stat
           label="PERSONAL BEST"
           value={s.best ?? "—"}
-          suffix={p.unit}
-          detail={p.event + " · your logged results"}
+          suffix={p.sportProfile?.measurement?.unitLabel || p.unit}
+          detail={
+            (p.sportProfile?.discipline
+              ? `${p.sportProfile.discipline} · `
+              : p.sportProfile?.positionGroup
+                ? `${p.sportProfile.positionGroup} · `
+                : "") + `${p.event} · your logged results`
+          }
           icon={Trophy}
         />
         <Stat

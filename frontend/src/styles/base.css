@@ -240,7 +240,27 @@ small {
   box-shadow: 0 12px 40px #0002;
 }
 .toast.error {
-  background: #833b2a;
+  background: #1c0e0c;
+  color: #ffffff;
+  border: 1.5px solid #ef4444;
+  border-left: 6px solid #ef4444;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+.toast.error span {
+  color: #ffffff;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.toast.error svg {
+  color: #f87171;
+  flex-shrink: 0;
+}
+.toast.error button {
+  color: #fca5a5;
+  transition: color 0.15s;
+}
+.toast.error button:hover {
+  color: #ffffff;
 }
 .toast button {
   color: inherit;
@@ -252,10 +272,14 @@ small {
   bottom: 20px;
   left: 20px;
   z-index: 20;
-  background: #833b2a;
-  color: white;
-  padding: 20px;
+  background: #1c0e0c;
+  border: 1px solid #ef4444;
+  border-left: 5px solid #ef4444;
+  color: #ffffff;
+  padding: 16px 20px;
   font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
 .modal {
   width: calc(100% - 32px);
@@ -336,11 +360,16 @@ small {
   text-decoration: underline;
 }
 .error {
-  padding: 12px;
-  background: #f7e7e0;
-  color: #a3301b;
-  font-size: 12px;
+  padding: 14px 18px;
+  background: #1c0e0c;
+  border: 1px solid #ef4444;
+  border-left: 5px solid #ef4444;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
   margin: 15px 0;
+  line-height: 1.5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 .notice {
   padding: 17px 22px;

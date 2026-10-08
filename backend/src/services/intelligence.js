@@ -14,13 +14,20 @@ export function age(birthDate) {
 export function insights(p, records) {
   const sessions = records
       .filter((r) => r.kind === "sessions")
-      .sort((a, b) => a.date.localeCompare(b.date)),
+      .sort((a, b) =>
+        (a.date || a.trainingDate || "").localeCompare(
+          b.date || b.trainingDate || "",
+        ),
+      ),
     recent = sessions.slice(-7);
   const measured = sessions.filter(
       (r) =>
         r.event === p.event && r.unit === (p.unit || "sec") && r.metric > 0,
     ),
-    lower = (p.unit || "sec") === "sec";
+    lower =
+      p.sportProfile?.measurement?.direction
+        ? p.sportProfile.measurement.direction === "lower_is_better"
+        : (p.unit || "sec") === "sec";
   const best = measured.length
     ? (lower ? Math.min : Math.max)(...measured.map((r) => r.metric))
     : null;
@@ -61,8 +68,8 @@ export function insights(p, records) {
         100,
         (new Set(
           sessions
-            .filter((r) => Date.parse(r.date) >= Date.now() - 28 * 86400000)
-            .map((r) => r.date),
+            .filter((r) => Date.parse(r.date || r.trainingDate) >= Date.now() - 28 * 86400000)
+            .map((r) => r.date || r.trainingDate),
         ).size /
           12) *
           100,

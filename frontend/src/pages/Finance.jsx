@@ -1,10 +1,11 @@
 import { useOutletContext } from "react-router-dom";
-import { Plus, Wallet, Fingerprint, Download } from "lucide-react";
+import { Plus, Wallet, Fingerprint } from "lucide-react";
 import { PageTitle, Stat, Actions, PageLink, Empty } from "../components/UI";
 import { dateLabel, money } from "../lib/forms";
-import { exportData } from "../lib/api";
+import { ExportMenu } from "../components/ExportMenu";
+
 export default function Finance() {
-  const { data, add, remove, go, notify } = useOutletContext();
+  const { data, add, remove, go, notify, user } = useOutletContext();
   return (
     <>
       <PageTitle
@@ -93,17 +94,14 @@ export default function Finance() {
             Your export includes achievements, training history, and expenses.
           </p>
         </div>
-        <button
+        <ExportMenu
+          user={user}
+          data={data}
+          notify={notify}
+          pageContext="finance"
+          buttonLabel="Export portfolio PDF"
           className="button dark"
-          onClick={() =>
-            exportData("sponsorship-portfolio.json").catch((e) =>
-              notify(e.message, "error"),
-            )
-          }
-        >
-          <Download size={17} />
-          Export portfolio
-        </button>
+        />
       </div>
     </>
   );

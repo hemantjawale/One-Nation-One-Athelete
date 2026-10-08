@@ -28,6 +28,8 @@ import {
   Mic,
   X,
   CheckCircle2,
+  Bell,
+  Target,
 } from "lucide-react";
 import Landing from "./pages/Landing";
 import Auth from "./components/Auth";
@@ -59,6 +61,17 @@ const navigation = [
   ["transparency", "Transparency", ShieldCheck],
   ["settings", "Profile & privacy", Settings],
 ];
+const coachNavigation = [
+  ["coach", "Dashboard", LayoutDashboard],
+  ["coach/athletes", "My Athletes", Users],
+  ["coach/plans", "Training Plans", CalendarDays],
+  ["coach/performance", "Performance", Activity],
+  ["coach/recovery", "Recovery", HeartPulse],
+  ["coach/goals", "Goals", Target],
+  ["coach/roadmaps", "Roadmaps", Compass],
+  ["coach/notifications", "Notifications", Bell],
+  ["coach/profile", "Coach Profile", Settings],
+];
 export default function App() {
   const navigate = useNavigate(),
     [user, setUser] = useState(null),
@@ -89,6 +102,7 @@ export default function App() {
       audit: "/audit",
       benchmarks: "/benchmarks",
       fairness: "/fairness",
+      comparison: "/performance/compare",
     };
     if (["coach", "medical"].includes(u.role)) endpoints.coach = "/coach";
     if (["coach", "organiser"].includes(u.role))
@@ -113,7 +127,13 @@ export default function App() {
         await reload(r.user);
       })
       .catch((e) => {
-        if (!navigator.onLine) {
+        if (e.status === 401) {
+          sessionStorage.removeItem("onona-user");
+          sessionStorage.removeItem("onona-token");
+          localStorage.removeItem("onona-token");
+          setUser(null);
+          setData(null);
+        } else if (!navigator.onLine) {
           const u = JSON.parse(sessionStorage.getItem("onona-user") || "null");
           if (u) {
             setUser(u);
@@ -155,6 +175,10 @@ export default function App() {
     };
   }, [user]);
   async function signedIn(u, isNew = false) {
+    if (u.token) {
+      sessionStorage.setItem("onona-token", u.token);
+      localStorage.setItem("onona-token", u.token);
+    }
     setUser(u);
     setAuth(null);
     setData(null);
@@ -177,8 +201,10 @@ export default function App() {
   async function logout() {
     try {
       await api("/auth/logout", { method: "POST" });
-      localStorage.removeItem("onona-cache:" + user.id);
+      localStorage.removeItem("onona-cache:" + (user?.id || ""));
+      localStorage.removeItem("onona-token");
       sessionStorage.removeItem("onona-user");
+      sessionStorage.removeItem("onona-token");
       setUser(null);
       setData(null);
       navigate("/");
@@ -303,7 +329,27 @@ export default function App() {
             )
           }
         >
-          <Route index element={<Navigate to="overview" replace />} />
+          <Route
+            index
+            element={
+              <Navigate
+                to={user?.role === "coach" ? "coach" : "overview"}
+                replace
+              />
+            }
+          />
+          <Route
+            path="coach/*"
+            element={
+              <Suspense
+                fallback={
+                  <div className="empty">Loading your workspace…</div>
+                }
+              >
+                <Coach />
+              </Suspense>
+            }
+          />
           {[
             ["overview", Dashboard],
             ["passport", Passport],
@@ -445,9 +491,14 @@ function Workspace({
     r.start();
     notify("Listening for a page name…");
   }
+  const isCoachUser = user.role === "coach";
+  const navList = isCoachUser ? coachNavigation : navigation;
   const active =
-    navigation.find(([id]) => location.pathname.endsWith("/" + id))?.[1] ||
-    "Overview";
+    navList.find(
+      ([id]) =>
+        location.pathname === "/app/" + id ||
+        location.pathname.startsWith("/app/" + id + "/"),
+    )?.[1] || (isCoachUser ? "Coach Workspace" : "Overview");
   return (
     <div className="workspace">
       <a href="#workspace-main" className="skip">
@@ -456,16 +507,16 @@ function Workspace({
       <aside className={"sidebar " + (menu ? "visible" : "")}>
         <Brand onClick={() => navigate("/")} />
         <div className="workspace-label">
-          YOUR ATHLETE WORKSPACE <span>01</span>
+          {isCoachUser ? "COACH WORKSPACE" : "YOUR ATHLETE WORKSPACE"} <span>01</span>
         </div>
         <nav>
-          {navigation
+          {navList
             .filter(
               ([id]) =>
                 id !== "coach" || ["coach", "medical"].includes(user.role),
             )
             .map(([id, label, Icon]) => (
-              <NavLink key={id} to={"/app/" + id}>
+              <NavLink key={id} to={"/app/" + id} end={id === "coach"}>
                 <Icon size={18} />
                 {label}
               </NavLink>

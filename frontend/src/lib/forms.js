@@ -77,6 +77,8 @@ export const forms = {
       level: "District",
       result: "",
       notes: "",
+      certificate: null,
+      verificationStatus: "Self Uploaded",
     },
   },
   injuries: {
