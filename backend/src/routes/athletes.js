@@ -3,7 +3,7 @@ import { unlink } from "node:fs/promises";
 import path from "node:path";
 import { profileSchema } from "../services/schemas.js";
 import { normalizeProfile } from "../services/sports.js";
-import { insights, plan } from "../services/intelligence.js";
+import { insights, plan, calculateRecoveryReadiness, getConsolidatedAthleteContext } from "../services/intelligence.js";
 import { benchmarks, fairness } from "../services/research.js";
 import { BenchmarkService } from "../services/benchmarkService.js";
 import { safeUser, cookieOptions } from "../middleware/auth.js";
@@ -103,6 +103,18 @@ export function athleteRoutes(db, uploads) {
     const p = (await db.get("profiles", req.user.id)) || {},
       s = insights(p, await allRecords(db, req.user.id));
     res.json({ ...s, plan: plan(p, s) });
+  });
+
+  r.get("/context", async (req, res) => {
+    const context = await getConsolidatedAthleteContext(db, req.user.id);
+    res.json(context);
+  });
+
+  r.get("/recovery/readiness", async (req, res) => {
+    const records = await allRecords(db, req.user.id);
+    const recoveryLogs = await db.list("recovery_logs", { ownerId: req.user.id });
+    const readiness = calculateRecoveryReadiness(records, recoveryLogs);
+    res.json(readiness);
   });
 
   // Automatic Sport-Aware Performance Comparison Endpoint

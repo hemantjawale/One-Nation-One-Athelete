@@ -11,6 +11,12 @@ export const SPRINT_ROADMAP_LEVELS = [
     name: "Foundation",
     title: "Level 1 — Foundation",
     focus: "Running mechanics, general strength, mobility & basic acceleration",
+    objective: "Establish fundamental movement quality, posture alignment, and basic force production capacity.",
+    entryCriteria: "Initial athlete onboarding, baseline health clearance & athletic profile creation.",
+    progressionCriteria: "Complete 8+ foundation sessions with consistent posture and pain-free execution.",
+    measurableOutcomes: ["Standing Broad Jump >= 2.00m", "10m Falling Start <= 2.10s"],
+    recommendedQualities: ["acceleration", "technique_drills", "strength", "mobility_recovery"],
+    exitCriteria: "Demonstrated sprint mechanics retention and zero acute pain flags.",
     checklist: [
       "Running mechanics & posture drills",
       "General strength & bodyweight force",
@@ -26,6 +32,12 @@ export const SPRINT_ROADMAP_LEVELS = [
     name: "Acceleration",
     title: "Level 2 — Acceleration Development",
     focus: "Start mechanics, 0–20m horizontal drive & force projection",
+    objective: "Master horizontal force orientation, low shin angles, and explosive first 3 strides.",
+    entryCriteria: "Level 1 exit criteria met; pain-free movement baseline.",
+    progressionCriteria: "Log 12+ acceleration-focused sessions with 3-point start proficiency.",
+    measurableOutcomes: ["20m 3-Point Start <= 3.30s", "10m Acceleration Split improvement"],
+    recommendedQualities: ["acceleration", "reaction_start", "power_plyometrics", "strength"],
+    exitCriteria: "Consistent 20m drive phase without early trunk pop-up.",
     checklist: [
       "10m & 20m falling starts",
       "3-point start mechanics",
@@ -41,6 +53,12 @@ export const SPRINT_ROADMAP_LEVELS = [
     name: "Maximum Velocity",
     title: "Level 3 — Maximum Velocity",
     focus: "Upright mechanics, flying sprints, vertical stiffness & relaxation",
+    objective: "Maximize top-speed mechanics, ankle stiffness, and high-velocity muscle relaxation.",
+    entryCriteria: "Level 2 completed; solid acceleration drive established.",
+    progressionCriteria: "Complete 16+ high-velocity exposures with flying 20m evaluation.",
+    measurableOutcomes: ["Flying 20m Sprint <= 2.25s", "Ankle stiffness retention"],
+    recommendedQualities: ["maximum_velocity", "power_plyometrics", "technique_drills"],
+    exitCriteria: "Upright mechanics stability during 20m fly segment.",
     checklist: [
       "Flying 20m sprints",
       "Wicket / mini-hurdle runs",
@@ -56,6 +74,12 @@ export const SPRINT_ROADMAP_LEVELS = [
     name: "Speed Endurance",
     title: "Level 4 — Speed Endurance",
     focus: "60–120m velocity maintenance under lactic fatigue",
+    objective: "Sustain sprint mechanics and velocity across 60–120m repetitions under glycolytic load.",
+    entryCriteria: "Level 3 completed; established max velocity baseline.",
+    progressionCriteria: "Complete 20+ speed endurance exposures with target split consistency.",
+    measurableOutcomes: ["60m Time Trial <= 7.40s", "100m deceleration gap reduction"],
+    recommendedQualities: ["speed_endurance", "maximum_velocity", "recovery_mobility"],
+    exitCriteria: "Mechanics retention through 80m+ under fatigue.",
     checklist: [
       "60m–120m sprint repetitions",
       "Mechanics retention under metabolic fatigue",
@@ -71,6 +95,12 @@ export const SPRINT_ROADMAP_LEVELS = [
     name: "Competition Preparation",
     title: "Level 5 — Competition Preparation",
     focus: "Block starts, race modeling, neurological readiness & taper",
+    objective: "Refine race execution, starting block mechanics, and tune volume for competitive peaking.",
+    entryCriteria: "Level 4 completed; competition within 4–6 weeks.",
+    progressionCriteria: "Execute race simulation & block exit trials under timing conditions.",
+    measurableOutcomes: ["Block Start Reaction <= 0.16s", "Race Model execution score >= 85%"],
+    recommendedQualities: ["competition_prep", "reaction_start", "acceleration", "recovery_mobility"],
+    exitCriteria: "Taper protocol completion & full race readiness.",
     checklist: [
       "Starting block exit & reaction",
       "Full race modeling & segment splits",
@@ -86,6 +116,12 @@ export const SPRINT_ROADMAP_LEVELS = [
     name: "Competition Peak",
     title: "Level 6 — Championship Peak",
     focus: "Target performance execution & post-season analysis",
+    objective: "Peak at target championship meet and transition smoothly into active recovery cycle.",
+    entryCriteria: "Level 5 completed; official competition scheduled within 7 days.",
+    progressionCriteria: "Compete at target championship meet; verify official mark.",
+    measurableOutcomes: ["Official Competition Personal Best", "State / National benchmark rank"],
+    recommendedQualities: ["competition_prep", "recovery_mobility"],
+    exitCriteria: "Post-season debrief & next macrocycle transition.",
     checklist: [
       "Championship race execution",
       "Target performance verification",
@@ -817,32 +853,45 @@ export class TrainingEngine {
     const distinctDays = new Set(recentSessions.map((s) => s.date || s.trainingDate)).size;
     const adherenceRate = Math.min(100, Math.round((distinctDays / 16) * 100)); // Target 16 training days per month
 
+    let status = "INSUFFICIENT DATA";
     let trend = "Insufficient testing data";
     let assessment = "";
     let recommendedAction = "";
 
-    if (gap === null) {
-      assessment = "Set a quantitative target and record competition/testing sessions to establish progress tracking.";
-      recommendedAction = "Log baseline 10m, 20m, or 100m sprint metrics.";
+    if (profile.injuryFlag) {
+      status = "NEEDS ATTENTION";
+      trend = "Safety Hold Flagged";
+      assessment = "Pain or soreness reported in recent sessions. Automatic load progression is paused.";
+      recommendedAction = "Review rehabilitation progress with your coach or clinician before advancing training volume.";
+    } else if (gap === null || sessions.length < 3) {
+      status = "INSUFFICIENT DATA";
+      trend = "Insufficient testing data";
+      assessment = "Log at least 3 training sessions and set a quantitative target to enable progress tracking.";
+      recommendedAction = "Record baseline 10m, 20m, or 100m sprint timing metrics.";
     } else if (gap <= 0) {
+      status = "ON TRACK";
       trend = "Target Surpassed";
       assessment = `You have achieved your target of ${target} ${athlete.unit}! Current PB is ${currentPB} ${athlete.unit}.`;
       recommendedAction = "Consult coach to calibrate your next season performance target.";
     } else if (adherenceRate >= 75) {
+      status = "ON TRACK";
       trend = "Progressing On Track";
       assessment = `Current gap is ${gap} ${athlete.unit}. Training consistency is solid (${adherenceRate}%). Progression is on an honest trajectory.`;
       recommendedAction = "Maintain acceleration development and refine maximum velocity mechanics.";
     } else if (adherenceRate >= 50) {
+      status = "PARTIALLY ON TRACK";
       trend = "Progressing Slowly";
       assessment = `Current gap is ${gap} ${athlete.unit}. Adherence is ${adherenceRate}%. Progress is slower than programmed due to missed training exposure.`;
       recommendedAction = "Focus on completing all planned sessions without increasing volume.";
     } else {
+      status = "NOT ON TRACK";
       trend = "Off Track (Adherence Blocker)";
       assessment = `Low training adherence (${adherenceRate}%). The system cannot attribute adaptation when session frequency is insufficient.`;
       recommendedAction = "Re-establish consistent routine before attempting high-load progression.";
     }
 
     return {
+      status, // "ON TRACK" | "PARTIALLY ON TRACK" | "NEEDS ATTENTION" | "NOT ON TRACK" | "INSUFFICIENT DATA"
       event: athlete.event || "100m",
       currentPB: currentPB !== null ? `${currentPB} ${athlete.unit}` : "—",
       targetPB: target !== null ? `${target} ${athlete.unit}` : "—",
@@ -855,6 +904,49 @@ export class TrainingEngine {
       recommendation: recommendedAction,
       recommendedAction,
       updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Internal Training Load Analytics (duration * RPE in Arbitrary Units AU)
+   */
+  async getTrainingLoadAnalytics(athleteId) {
+    const sessions = await this.db.list("sessions", { ownerId: athleteId });
+    const plans = await this.db.list("plans", { athleteId });
+
+    const now = Date.now();
+    const fourWeeksMs = 28 * 86400000;
+    const recentSessions = sessions.filter((s) => {
+      const d = Date.parse(s.date || s.trainingDate);
+      return !isNaN(d) && d >= now - fourWeeksMs;
+    });
+
+    const plannedLoadTotal = plans.reduce((acc, p) => {
+      if (!p.days) return acc;
+      return acc + p.days.reduce((dAcc, d) => dAcc + (d.expectedDuration || 45) * (d.targetIntensity >= 90 ? 8 : 6), 0);
+    }, 0);
+
+    const actualLoadTotal = recentSessions.reduce((acc, s) => acc + (s.duration || 0) * (s.effort || 5), 0);
+
+    const rpes = recentSessions.map((s) => s.effort).filter(Boolean);
+    const avgRpe = rpes.length ? Number((rpes.reduce((a, b) => a + b, 0) / rpes.length).toFixed(1)) : 0;
+
+    const sevenDaysMs = 7 * 86400000;
+    const acuteSessions = recentSessions.filter((s) => Date.parse(s.date || s.trainingDate) >= now - sevenDaysMs);
+    const acuteLoad = acuteSessions.reduce((acc, s) => acc + (s.duration || 0) * (s.effort || 5), 0);
+    const chronicWeeklyAvg = actualLoadTotal / 4 || 1;
+    const acwr = Number((acuteLoad / chronicWeeklyAvg).toFixed(2));
+
+    return {
+      plannedLoad: plannedLoadTotal,
+      actualLoad: actualLoadTotal,
+      loadUnit: "AU",
+      avgRpe,
+      acuteLoad,
+      chronicWeeklyAvg: Math.round(chronicWeeklyAvg),
+      acwr,
+      status: acwr > 1.5 ? "High Spike" : acwr < 0.8 ? "Underloading" : "Optimal Zone",
+      sessionsLogged: recentSessions.length,
     };
   }
 

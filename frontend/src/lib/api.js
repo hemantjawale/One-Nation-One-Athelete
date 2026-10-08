@@ -185,6 +185,10 @@ export async function getRealityCheck() {
   return api("/training/reality-check");
 }
 
+export async function getTrainingLoad() {
+  return api("/training/load");
+}
+
 export async function getTrainingLibrary() {
   return api("/training/library");
 }
@@ -313,4 +317,25 @@ export async function submitCoachOverride(athleteId, payload) {
     body: payload,
   });
 }
+
+export async function getTodayRecoveryReadiness() {
+  return api("/recovery/readiness");
+}
+
+export async function getRecoveryLogs() {
+  return api("/records/recovery_logs");
+}
+
+export async function postDailyRecoveryCheckIn(logData) {
+  return api("/records/recovery_logs", {
+    method: "POST",
+    body: logData,
+  });
+}
+
+export async function getAthleteConsolidatedContext() {
+  return api("/athletes/context");
+}
+
+
 

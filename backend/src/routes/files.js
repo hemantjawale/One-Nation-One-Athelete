@@ -58,22 +58,24 @@ export function fileRoutes(db, directory) {
     const f = await db.get("files", req.params.id);
     if (!f) return res.sendStatus(404);
     if (f.ownerId !== req.user.id) {
-      const p = await db.get("profiles", f.ownerId),
-        linked = (await db.list("achievements", { ownerId: f.ownerId })).some(
-          (a) =>
-            a.attachmentId === f.id ||
-            a.certificate?.publicId === f.id ||
-            (typeof a.certificate?.url === "string" &&
-              a.certificate.url.includes(f.id)),
-        );
-      if (
-        !p ||
-        p.coachId !== req.user.id ||
-        !p.sharePerformance ||
-        req.user.role !== "coach" ||
-        !linked
-      )
+      const p = await db.get("profiles", f.ownerId);
+      const isCoach =
+        req.user.role === "coach" &&
+        p &&
+        p.coachId &&
+        (p.coachId === req.user.id || p.coachId.toLowerCase() === req.user.email?.toLowerCase());
+
+      const linked = (await db.list("achievements", { ownerId: f.ownerId })).some(
+        (a) =>
+          a.attachmentId === f.id ||
+          a.certificate?.publicId === f.id ||
+          (typeof a.certificate?.url === "string" &&
+            a.certificate.url.includes(f.id)),
+      );
+
+      if (!isCoach && (!p || !p.sharePerformance || req.user.role !== "coach" || !linked)) {
         return res.sendStatus(403);
+      }
     }
     if (f.content && f.content.startsWith("data:")) {
       const matches = f.content.match(/^data:([^;]+);base64,(.+)$/);
@@ -91,26 +93,46 @@ export function fileRoutes(db, directory) {
       .set("Content-Disposition", `inline; filename="${f.id}"`)
       .sendFile(path.join(directory, f.id), { dotfiles: "allow" });
   });
+
   r.put("/:id", async (req, res) => {
     const f = await db.get("files", req.params.id);
-    if (!f || f.ownerId !== req.user.id) return res.sendStatus(404);
-    const body = z
-      .object({
-        name: text,
-        notes: z.string().max(2000).default(""),
-        analysis: z
-          .object({
-            samples: num(3, 10000),
-            kneeAngle: num(0, 180),
-            consistency: num(0, 100),
-            duration: num(0, 10000),
-            source: z.literal("MediaPipe Pose · client measured"),
-          })
-          .nullable()
-          .default(null),
-      })
-      .parse(req.body);
-    res.json(await db.put("files", { ...f, ...body }));
+    if (!f) return res.sendStatus(404);
+
+    const p = await db.get("profiles", f.ownerId);
+    const isOwner = f.ownerId === req.user.id;
+    const isCoach =
+      req.user.role === "coach" &&
+      p &&
+      p.coachId &&
+      (p.coachId === req.user.id || p.coachId.toLowerCase() === req.user.email?.toLowerCase());
+
+    if (!isOwner && !isCoach) return res.sendStatus(403);
+
+    const updateSchema = z.object({
+      name: text.optional(),
+      notes: z.string().max(2000).default("").optional(),
+      trainingWeek: z.string().max(50).optional(),
+      trainingDay: z.string().max(50).optional(),
+      sessionTitle: z.string().max(200).optional(),
+      event: z.string().max(100).optional(),
+      phase: z.string().max(100).optional(),
+      requestCoachReview: z.boolean().optional(),
+      analysis: z.record(z.any()).nullable().optional(),
+      coachAnnotation: z
+        .object({
+          observation: z.string().max(2000).default(""),
+          correction: z.string().max(2000).default(""),
+          drillRecommendation: z.string().max(2000).default(""),
+          coachFollowUpNote: z.string().max(2000).default(""),
+          annotatedBy: z.string().max(100).optional(),
+          annotatedAt: z.string().optional(),
+        })
+        .optional(),
+    });
+
+    const body = updateSchema.parse(req.body);
+    const updated = await db.put("files", { ...f, ...body, updatedAt: new Date().toISOString() });
+    res.json(updated);
   });
   r.delete("/:id", async (req, res) => {
     const f = await db.get("files", req.params.id);

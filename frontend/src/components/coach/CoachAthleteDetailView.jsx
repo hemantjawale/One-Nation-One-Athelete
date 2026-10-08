@@ -17,9 +17,13 @@ import {
   Edit,
   Save,
   Info,
+  ScanLine,
+  MessageSquare,
+  Video,
 } from "lucide-react";
 import { Modal } from "../UI";
 import { dateLabel } from "../../lib/forms";
+import { api } from "../../lib/api";
 
 export function CoachAthleteDetailView({
   athleteDetail,
@@ -47,6 +51,17 @@ export function CoachAthleteDetailView({
   const [rescheduleDayIndex, setRescheduleDayIndex] = useState(null);
   const [rescheduleNewDate, setRescheduleNewDate] = useState("");
   const [rescheduleNotes, setRescheduleNotes] = useState("");
+
+  // Video Annotation Modal State
+  const [annotationModalOpen, setAnnotationModalOpen] = useState(false);
+  const [annotatingFile, setAnnotatingFile] = useState(null);
+  const [annotationForm, setAnnotationForm] = useState({
+    observation: "",
+    correction: "",
+    drillRecommendation: "",
+    coachFollowUpNote: "",
+  });
+  const [savingAnnotation, setSavingAnnotation] = useState(false);
 
   if (loading || !athleteDetail) {
     return (
@@ -126,6 +141,43 @@ export function CoachAthleteDetailView({
       notify?.("Session rescheduled successfully.");
     } catch (err) {
       notify?.("Error rescheduling session: " + err.message, "error");
+    }
+  }
+
+  function openAnnotationModal(file) {
+    setAnnotatingFile(file);
+    setAnnotationForm({
+      observation: file.coachAnnotation?.observation || "",
+      correction: file.coachAnnotation?.correction || "",
+      drillRecommendation: file.coachAnnotation?.drillRecommendation || "",
+      coachFollowUpNote: file.coachAnnotation?.coachFollowUpNote || "",
+    });
+    setAnnotationModalOpen(true);
+  }
+
+  async function handleSaveAnnotation(e) {
+    e.preventDefault();
+    if (!annotatingFile) return;
+    setSavingAnnotation(true);
+    try {
+      const payload = {
+        coachAnnotation: {
+          ...annotationForm,
+          annotatedBy: "Coach",
+          annotatedAt: new Date().toISOString().slice(0, 10),
+        },
+      };
+      await api("/files/" + annotatingFile.id, { method: "PUT", body: payload });
+      setAnnotationModalOpen(false);
+      notify?.("Coach annotation saved to athlete video.");
+      if (athleteDetail.files) {
+        const fileObj = athleteDetail.files.find((f) => f.id === annotatingFile.id);
+        if (fileObj) fileObj.coachAnnotation = payload.coachAnnotation;
+      }
+    } catch (err) {
+      notify?.("Error saving annotation: " + err.message, "error");
+    } finally {
+      setSavingAnnotation(false);
     }
   }
 
@@ -238,6 +290,7 @@ export function CoachAthleteDetailView({
             ["performance", "Performance", TrendingUp],
             ["training", "Training & Plans", Calendar],
             ["recovery", "Recovery & Health", HeartPulse],
+            ["videolab", "VideoLab Kinematics", ScanLine],
             ["goals", "Goals", Target],
             ["roadmap", "Roadmap (Levels 1–6)", Layers],
           ].map(([id, label, Icon]) => (
@@ -751,14 +804,82 @@ export function CoachAthleteDetailView({
       )}
 
       {/* ========================================================
-          TAB 4: RECOVERY & HEALTH (SECTION 32 & 33)
+          TAB 4: RECOVERY & HEALTH (SECTIONS 32, 33 & PART 2 READINESS)
       ======================================================== */}
       {activeTab === "recovery" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* READINESS STATUS BANNER FOR COACH */}
+          <div
+            className="panel panel-pad"
+            style={{
+              borderLeft: `4px solid ${
+                (readiness?.status || recovery?.readiness?.status) === "READY"
+                  ? "#10b981"
+                  : (readiness?.status || recovery?.readiness?.status) === "READY WITH CAUTION"
+                  ? "#eab308"
+                  : (readiness?.status || recovery?.readiness?.status) === "RECOVERY PRIORITY"
+                  ? "#f97316"
+                  : (readiness?.status || recovery?.readiness?.status) === "COACH REVIEW"
+                  ? "#ef4444"
+                  : "#64748b"
+              }`,
+              background: "#111827",
+              color: "#f8fafc",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    letterSpacing: "0.5px",
+                    color:
+                      (readiness?.status || recovery?.readiness?.status) === "READY"
+                        ? "#10b981"
+                        : (readiness?.status || recovery?.readiness?.status) === "READY WITH CAUTION"
+                        ? "#eab308"
+                        : (readiness?.status || recovery?.readiness?.status) === "RECOVERY PRIORITY"
+                        ? "#f97316"
+                        : (readiness?.status || recovery?.readiness?.status) === "COACH REVIEW"
+                        ? "#ef4444"
+                        : "#94a3b8",
+                  }}
+                >
+                  TRAINING READINESS INDICATOR: {(readiness?.status || recovery?.readiness?.status) || "LIMITED DATA"}
+                </span>
+                <h2 style={{ fontSize: "20px", fontWeight: 700, margin: "4px 0 6px 0" }}>
+                  {(readiness?.status || recovery?.readiness?.status) || "LIMITED DATA"} (Score: {(readiness?.score || recovery?.readiness?.score) ?? 0}/100)
+                </h2>
+                <p style={{ margin: 0, fontSize: "14px", color: "#cbd5e1" }}>
+                  {(readiness?.recommendation || recovery?.readiness?.recommendation) || "Athlete requires 3+ daily check-ins for high-confidence baseline comparison."}
+                </p>
+              </div>
+
+              <div style={{ background: "#0f172a", padding: "12px 16px", borderRadius: "8px", border: "1px solid #1e293b", minWidth: "200px" }}>
+                <span style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 700, display: "block" }}>RECOMMENDED COACH ACTION</span>
+                <strong style={{ fontSize: "14px", color: "#f8fafc", display: "block", marginTop: "4px" }}>
+                  {(readiness?.primaryFocus || recovery?.readiness?.primaryFocus) || "Monitor Daily Check-ins"}
+                </strong>
+              </div>
+            </div>
+
+            {(readiness?.reasons || recovery?.readiness?.reasons)?.length > 0 && (
+              <div style={{ marginTop: "14px", paddingTop: "12px", borderTop: "1px dashed #334155" }}>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: "#94a3b8" }}>PRIMARY READINESS FACTORS:</span>
+                <ul style={{ margin: "6px 0 0 16px", padding: 0, fontSize: "13px", color: "#e2e8f0" }}>
+                  {(readiness?.reasons || recovery?.readiness?.reasons || []).map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
           <div className="panel panel-pad">
-            <h3 className="section-title">Athlete Recovery & Wellbeing Monitoring</h3>
+            <h3 className="section-title">Athlete Recovery & Personal Baseline Monitoring</h3>
             <p className="subtitle-sm">
-              Honest recovery indicators, muscle soreness, nervous system readiness, and injury history.
+              Comparing athlete's daily subjective indicators against their own 14-day personal baseline.
             </p>
 
             <div className="coach-kpi-grid" style={{ marginTop: 14 }}>
@@ -781,7 +902,23 @@ export function CoachAthleteDetailView({
                 >
                   {recovery?.latestFatigue !== null && recovery?.latestFatigue !== undefined ? `${recovery.latestFatigue}/10` : "3/10"}
                 </strong>
-                <small>{recovery?.latestFatigue >= 8 ? "Fatigue Warning" : "Managed"}</small>
+                <small>
+                  {(readiness?.baseline?.avgFatigue || recovery?.readiness?.baseline?.avgFatigue)
+                    ? `14d baseline: ${(readiness?.baseline?.avgFatigue || recovery?.readiness?.baseline?.avgFatigue)}/10`
+                    : "Managed"}
+                </small>
+              </div>
+
+              <div className="coach-kpi-card">
+                <span className="kpi-label">7-Day Fatigue Trend</span>
+                <strong className="kpi-value">
+                  {(readiness?.trends?.fatigueTrend || recovery?.readiness?.trends?.fatigueTrend) || "Stable"}
+                </strong>
+                <small>
+                  {(readiness?.trends?.avgFatigue7d || recovery?.readiness?.trends?.avgFatigue7d)
+                    ? `7d avg: ${(readiness?.trends?.avgFatigue7d || recovery?.readiness?.trends?.avgFatigue7d)}/10`
+                    : "7-day average"}
+                </small>
               </div>
 
               <div className="coach-kpi-card">
@@ -793,14 +930,6 @@ export function CoachAthleteDetailView({
                   {recovery?.activeInjuries?.length || 0}
                 </strong>
                 <small>Requiring medical clearance</small>
-              </div>
-
-              <div className="coach-kpi-card">
-                <span className="kpi-label">Recovery Status</span>
-                <strong className="kpi-value">
-                  {recovery?.recoveryStatus || "Good"}
-                </strong>
-                <small>Readiness for loading</small>
               </div>
             </div>
           </div>
@@ -833,6 +962,151 @@ export function CoachAthleteDetailView({
             )}
           </div>
         </div>
+      )}
+
+      {/* ========================================================
+          TAB 5: VIDEOLAB KINEMATICS & TECHNIQUE REVIEW
+      ======================================================== */}
+      {activeTab === "videolab" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="panel panel-pad">
+            <h3 className="section-title">Athlete Movement Clips & Computer Vision Kinematics</h3>
+            <p className="subtitle-sm">
+              Review MediaPipe pose analysis metrics and provide expert coach observations and drill corrections.
+            </p>
+
+            {(!athleteDetail.files || athleteDetail.files.filter((f) => f.mime && f.mime.startsWith("video/")).length === 0) ? (
+              <p style={{ color: "#6a775b", marginTop: 12 }}>No technique videos uploaded by this athlete yet.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 14 }}>
+                {athleteDetail.files
+                  .filter((f) => f.mime && f.mime.startsWith("video/"))
+                  .map((vf) => (
+                    <div key={vf.id} style={{ background: "#111827", border: "1px solid #334155", borderRadius: "10px", padding: "16px", color: "#f8fafc" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: "12px" }}>
+                        <div>
+                          <strong style={{ fontSize: "16px", display: "block" }}>{vf.name}</strong>
+                          <small style={{ color: "#94a3b8" }}>
+                            Linked: {vf.trainingWeek || "Week 1"} • {vf.sessionTitle || "Sprint Session"} • {vf.phase || "Acceleration"}
+                          </small>
+                        </div>
+                        <button
+                          className="button orange small"
+                          onClick={() => openAnnotationModal(vf)}
+                          style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                        >
+                          <MessageSquare size={14} />
+                          {vf.coachAnnotation ? "Edit Coach Annotation" : "Add Coach Annotation"}
+                        </button>
+                      </div>
+
+                      {vf.analysis ? (
+                        <div style={{ background: "#0f172a", padding: "12px", borderRadius: "8px", border: "1px solid #1e293b", marginBottom: "12px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#94a3b8", marginBottom: "8px" }}>
+                            <span>MEASUREMENT COVERAGE: <strong style={{ color: "#f8fafc" }}>{vf.analysis.measurementCoverage || 90}%</strong></span>
+                            <span>VALID FRAMES: <strong style={{ color: "#f8fafc" }}>{vf.analysis.validFrameCount || vf.analysis.samples}</strong></span>
+                            <span>CONFIDENCE: <strong style={{ color: "#38bdf8" }}>{vf.analysis.confidence || "Moderate"}</strong></span>
+                          </div>
+
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "8px", fontSize: "12px" }}>
+                            <div style={{ background: "#111827", padding: "8px", borderRadius: "4px" }}>
+                              <span style={{ color: "#94a3b8", display: "block" }}>Left Knee Mean</span>
+                              <strong style={{ fontSize: "14px", color: "#f8fafc" }}>{vf.analysis.joints?.leftKnee?.mean ?? vf.analysis.kneeAngle}°</strong>
+                            </div>
+                            <div style={{ background: "#111827", padding: "8px", borderRadius: "4px" }}>
+                              <span style={{ color: "#94a3b8", display: "block" }}>Right Knee Mean</span>
+                              <strong style={{ fontSize: "14px", color: "#f8fafc" }}>{vf.analysis.joints?.rightKnee?.mean ?? "--"}°</strong>
+                            </div>
+                            <div style={{ background: "#111827", padding: "8px", borderRadius: "4px" }}>
+                              <span style={{ color: "#94a3b8", display: "block" }}>Knee Asymmetry</span>
+                              <strong style={{ fontSize: "14px", color: vf.analysis.symmetry?.kneeMeanDiff > 10 ? "#ef4444" : "#10b981" }}>
+                                {vf.analysis.symmetry?.kneeMeanDiff !== undefined ? `${vf.analysis.symmetry.kneeMeanDiff}°` : "--"}
+                              </strong>
+                            </div>
+                            <div style={{ background: "#111827", padding: "8px", borderRadius: "4px" }}>
+                              <span style={{ color: "#94a3b8", display: "block" }}>Trunk Stability</span>
+                              <strong style={{ fontSize: "14px", color: "#f8fafc" }}>{vf.analysis.trunkVariability || "Low"}</strong>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p style={{ color: "#94a3b8", fontSize: "12px" }}>MediaPipe analysis not yet run by athlete on this clip.</p>
+                      )}
+
+                      {vf.coachAnnotation && (
+                        <div style={{ background: "#1e293b", padding: "12px", borderRadius: "6px", borderLeft: "3px solid #f97316" }}>
+                          <span style={{ fontSize: "11px", fontWeight: 700, color: "#f97316", display: "block", marginBottom: "4px" }}>COACH ANNOTATION RECORD</span>
+                          {vf.coachAnnotation.observation && <p style={{ margin: "2px 0", fontSize: "13px" }}><strong>Observation:</strong> {vf.coachAnnotation.observation}</p>}
+                          {vf.coachAnnotation.correction && <p style={{ margin: "2px 0", fontSize: "13px" }}><strong>Correction:</strong> {vf.coachAnnotation.correction}</p>}
+                          {vf.coachAnnotation.drillRecommendation && <p style={{ margin: "2px 0", fontSize: "13px" }}><strong>Drill:</strong> {vf.coachAnnotation.drillRecommendation}</p>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* COACH ANNOTATION MODAL */}
+      {annotationModalOpen && annotatingFile && (
+        <Modal title={`Annotate Technique Clip: ${annotatingFile.name}`} onClose={() => setAnnotationModalOpen(false)}>
+          <form onSubmit={handleSaveAnnotation} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "4px" }}>Coach Technical Observation</label>
+              <textarea
+                rows="2"
+                placeholder="e.g. Excessive trunk lean during acceleration drive phase..."
+                value={annotationForm.observation}
+                onChange={(e) => setAnnotationForm({ ...annotationForm, observation: e.target.value })}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", background: "#0f172a", border: "1px solid #334155", color: "#fff", resize: "vertical" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "4px" }}>Biomechanical Correction</label>
+              <textarea
+                rows="2"
+                placeholder="e.g. Focus on driving foot backwards under hip rather than reaching forward..."
+                value={annotationForm.correction}
+                onChange={(e) => setAnnotationForm({ ...annotationForm, correction: e.target.value })}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", background: "#0f172a", border: "1px solid #334155", color: "#fff", resize: "vertical" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "4px" }}>Recommended Drill</label>
+              <input
+                type="text"
+                placeholder="e.g. Sled Pushes & Wicked Runs (10m spaced)"
+                value={annotationForm.drillRecommendation}
+                onChange={(e) => setAnnotationForm({ ...annotationForm, drillRecommendation: e.target.value })}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", background: "#0f172a", border: "1px solid #334155", color: "#fff" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "4px" }}>Follow-up Note</label>
+              <input
+                type="text"
+                placeholder="e.g. Re-check technique video next Wednesday session"
+                value={annotationForm.coachFollowUpNote}
+                onChange={(e) => setAnnotationForm({ ...annotationForm, coachFollowUpNote: e.target.value })}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", background: "#0f172a", border: "1px solid #334155", color: "#fff" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+              <button type="button" className="button secondary" onClick={() => setAnnotationModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="button orange" disabled={savingAnnotation}>
+                {savingAnnotation ? "Saving..." : "Save Annotation"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* ========================================================

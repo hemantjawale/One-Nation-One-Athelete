@@ -1,82 +1,9 @@
-export async function analyseVideo(video, onProgress) {
-  const { FilesetResolver, PoseLandmarker } =
-    await import("@mediapipe/tasks-vision");
-  const vision = await FilesetResolver.forVisionTasks(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm",
-    ),
-    model = await PoseLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath:
-          "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
-      },
-      runningMode: "VIDEO",
-      numPoses: 1,
-    });
-  const angles = [],
-    duration = Math.min(video.duration, 30);
-  const angle = (a, b, c) => {
-    const u = [a.x - b.x, a.y - b.y, a.z - b.z],
-      v = [c.x - b.x, c.y - b.y, c.z - b.z];
-    return (
-      (Math.acos(
-        Math.max(
-          -1,
-          Math.min(
-            1,
-            u.reduce((n, x, i) => n + x * v[i], 0) /
-              (Math.hypot(...u) * Math.hypot(...v)),
-          ),
-        ),
-      ) *
-        180) /
-      Math.PI
-    );
-  };
-  video.pause();
-  try {
-    for (let time = 0.05; time < duration; time += 0.25) {
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(Error("Video seek timed out. Try a shorter MP4.")),
-          5000,
-        );
-        video.onseeked = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        video.currentTime = time;
-      });
-      const result = model.detectForVideo(video, time * 1000),
-        p = result.worldLandmarks?.[0],
-        visible = result.landmarks?.[0];
-      if (p && [23, 25, 27].every((i) => (visible[i].visibility || 0) > 0.6)) {
-        const a = angle(p[23], p[25], p[27]);
-        if (Number.isFinite(a)) angles.push(a);
-      }
-      onProgress(Math.round((time / duration) * 100));
-      await new Promise((r) => setTimeout(r, 0));
-    }
-  } finally {
-    model.close();
-    video.onseeked = null;
-    video.currentTime = 0;
-  }
-  if (angles.length < 3)
-    throw Error(
-      "Not enough visible poses. Use a well-lit side-view video with your whole body visible.",
-    );
-  const mean = angles.reduce((a, b) => a + b, 0) / angles.length,
-    deviation = Math.sqrt(
-      angles.reduce((n, a) => n + (a - mean) ** 2, 0) / angles.length,
-    );
-  return {
-    samples: angles.length,
-    kneeAngle: +mean.toFixed(1),
-    consistency: Math.max(0, Math.round(100 - (deviation / 90) * 100)),
-    duration: +duration.toFixed(1),
-    source: "MediaPipe Pose · client measured",
-  };
+import { analyseVideoPipeline } from "./videoService";
+
+export async function analyseVideo(videoElement, onProgress) {
+  return analyseVideoPipeline(videoElement, onProgress);
 }
+
 export async function compressVideo(file, onProgress) {
   if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream)
     throw Error(

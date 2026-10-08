@@ -33,8 +33,10 @@ import {
   checkInSession,
   getWeeklyReview,
   getRealityCheck,
+  getTrainingLoad,
   getTrainingLibrary,
   sendSundayDigestEmail,
+  getTodayRecoveryReadiness,
 } from "../lib/api";
 import { EXERCISE_LIBRARY, SPRINT_TRAINING_QUALITIES } from "../lib/trainingKnowledge";
 
@@ -42,7 +44,7 @@ export default function Training() {
   const { data, user, action, busy, notify } = useOutletContext();
   const profile = data?.profile || {};
 
-  const [activeTab, setActiveTab] = useState("ai-plan"); // "ai-plan" | "coach-plan" | "roadmap" | "reality" | "library" | "legacy"
+  const [activeTab, setActiveTab] = useState("ai-plan"); // "ai-plan" | "coach-plan" | "roadmap" | "reality" | "load" | "library" | "legacy"
   const [loading, setLoading] = useState(true);
 
   // Training state
@@ -51,6 +53,8 @@ export default function Training() {
   const [aiPlan, setAiPlan] = useState(null);
   const [coachPlan, setCoachPlan] = useState(null);
   const [realityCheck, setRealityCheck] = useState(null);
+  const [trainingLoad, setTrainingLoad] = useState(null);
+  const [recoveryReadiness, setRecoveryReadiness] = useState(null);
   const [activeCheckingPlan, setActiveCheckingPlan] = useState(null);
 
   // Dialogs
@@ -104,12 +108,14 @@ export default function Training() {
   async function loadTrainingData() {
     try {
       setLoading(true);
-      const [rmRes, gRes, pairRes, singlePlan, rcRes] = await Promise.all([
+      const [rmRes, gRes, pairRes, singlePlan, rcRes, loadRes, readRes] = await Promise.all([
         getTrainingRoadmap().catch(() => null),
         getTrainingGoals().catch(() => null),
         getWeeklyPlansBoth().catch(() => null),
         getWeeklyPlan().catch(() => null),
         getRealityCheck().catch(() => null),
+        getTrainingLoad().catch(() => null),
+        getTodayRecoveryReadiness().catch(() => null),
       ]);
       setRoadmap(rmRes);
       setGoals(gRes);
@@ -118,6 +124,8 @@ export default function Training() {
       setAiPlan(ai);
       setCoachPlan(coach);
       setRealityCheck(rcRes);
+      setTrainingLoad(loadRes);
+      setRecoveryReadiness(readRes);
 
       if (gRes) {
         setEditYearTarget(gRes.yearGoal?.targetValue || "");
@@ -289,6 +297,38 @@ export default function Training() {
         }
       />
 
+      {/* RECOVERY READINESS ALERT BANNER */}
+      {recoveryReadiness && (recoveryReadiness.status === "RECOVERY PRIORITY" || recoveryReadiness.status === "COACH REVIEW" || recoveryReadiness.status === "READY WITH CAUTION") && (
+        <div
+          style={{
+            background: recoveryReadiness.status === "COACH REVIEW" ? "#ef444415" : recoveryReadiness.status === "RECOVERY PRIORITY" ? "#f9731615" : "#eab30815",
+            border: `1px solid ${recoveryReadiness.status === "COACH REVIEW" ? "#ef444450" : recoveryReadiness.status === "RECOVERY PRIORITY" ? "#f9731650" : "#eab30850"}`,
+            padding: "12px 16px",
+            borderRadius: "10px",
+            marginBottom: "16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <ShieldAlert size={20} color={recoveryReadiness.status === "COACH REVIEW" ? "#ef4444" : "#f97316"} />
+            <div>
+              <strong style={{ color: "#f8fafc", fontSize: "14px", display: "block" }}>
+                Training Readiness Alert: {recoveryReadiness.status}
+              </strong>
+              <span style={{ color: "#cbd5e1", fontSize: "13px" }}>
+                Recovery indicators are below your recent baseline. Review today's planned high-intensity session. ({recoveryReadiness.recommendation})
+              </span>
+            </div>
+          </div>
+          <span className="pill" style={{ background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", whiteSpace: "nowrap" }}>
+            {recoveryReadiness.primaryFocus || "Review Session"}
+          </span>
+        </div>
+      )}
+
       {/* Primary Training Navigation Tabs */}
       <div className="training-tabs">
         <button
@@ -326,6 +366,13 @@ export default function Training() {
         >
           <TrendingUp size={14} style={{ display: "inline", marginRight: 6, verticalAlign: "middle" }} />
           Reality Check & Goal Gap
+        </button>
+        <button
+          className={`training-tab ${activeTab === "load" ? "active" : ""}`}
+          onClick={() => setActiveTab("load")}
+        >
+          <Activity size={14} style={{ display: "inline", marginRight: 6, verticalAlign: "middle" }} />
+          Training Load & ACWR
         </button>
         <button
           className={`training-tab ${activeTab === "library" ? "active" : ""}`}
@@ -913,6 +960,58 @@ export default function Training() {
                 </div>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* TAB: TRAINING LOAD & ACWR */}
+      {activeTab === "load" && (
+        <section className="panel panel-pad">
+          <span className="eyebrow">INTERNAL TRAINING LOAD MODEL · (DURATION × RPE)</span>
+          <h2>Training Load & Neuromuscular Exposure</h2>
+          <p style={{ color: "#4b5563", fontSize: 13, marginBottom: 20 }}>
+            Monitors internal physiological load in Arbitrary Units (AU). Internal Load = Session Duration (min) &times; Session RPE (1–10).
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
+            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: 16, borderRadius: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Recent Actual Load</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: "#ea580c", marginTop: 4 }}>
+                {trainingLoad?.actualLoad || 0} <span style={{ fontSize: 13, color: "#64748b", fontWeight: 500 }}>AU</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 4 }}>Last 28 days cumulative</div>
+            </div>
+
+            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: 16, borderRadius: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Acute Load (7-Day)</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
+                {trainingLoad?.acuteLoad || 0} <span style={{ fontSize: 13, color: "#64748b", fontWeight: 500 }}>AU</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 4 }}>7-day fatigue proxy</div>
+            </div>
+
+            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: 16, borderRadius: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Workload Ratio (ACWR)</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: trainingLoad?.acwr > 1.5 ? "#dc2626" : "#16a34a", marginTop: 4 }}>
+                {trainingLoad?.acwr || 1.0}
+              </div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 4 }}>Status: <strong>{trainingLoad?.status || "Optimal Zone"}</strong></div>
+            </div>
+
+            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: 16, borderRadius: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Average RPE</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
+                {trainingLoad?.avgRpe || "—"} <span style={{ fontSize: 13, color: "#64748b", fontWeight: 500 }}>/ 10</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 4 }}>Perceived exertion mean</div>
+            </div>
+          </div>
+
+          <div style={{ background: "#fff7ed", border: "1px solid #ffedd5", padding: 16, borderRadius: 10 }}>
+            <h4 style={{ margin: "0 0 6px", color: "#c2410c", fontSize: 14 }}>💡 Sports Science Load Principles</h4>
+            <p style={{ margin: 0, fontSize: 12.5, color: "#9a3412", lineHeight: 1.5 }}>
+              The system tracks internal workload trends without diagnosing injury risk. An ACWR between 0.8 and 1.3 is considered the optimal adaptation window. Workload spikes (&gt;1.5) automatically trigger cautious volume stabilization in next week&apos;s adaptive plan generation.
+            </p>
           </div>
         </section>
       )}

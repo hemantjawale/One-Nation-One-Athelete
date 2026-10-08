@@ -209,6 +209,12 @@ export function trainingRoutes(db) {
     res.json(reality);
   });
 
+  // Training Load Analytics
+  r.get("/load", async (req, res) => {
+    const loadStats = await engine.getTrainingLoadAnalytics(req.user.id);
+    res.json(loadStats);
+  });
+
   // Trigger / Send Sunday Digest Email (Sends upcoming 7-day training plan + last week performance review)
   r.post("/send-digest", async (req, res) => {
     try {

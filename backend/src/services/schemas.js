@@ -154,6 +154,25 @@ export const schemas = {
       .min(1)
       .max(7),
   }),
+  recovery_logs: z.object({
+    date,
+    sleepDuration: num(0, 24),
+    sleepQuality: z.enum(["Poor", "Fair", "Good", "Excellent"]).default("Good"),
+    fatigue: num(1, 10),
+    stress: num(1, 10),
+    mood: num(1, 10),
+    soreness: num(1, 10),
+    generalRecovery: num(1, 10),
+    painFlag: z.boolean().default(false),
+    painLevel: num(0, 10).default(0),
+    painArea: z.string().max(100).default(""),
+    previousSessionRPE: num(1, 10).optional(),
+    previousSessionDifficulty: z.string().max(100).default(""),
+    hydration: z.enum(["Poor", "Moderate", "Good"]).default("Good").optional(),
+    travel: z.boolean().default(false).optional(),
+    unusualStress: z.boolean().default(false).optional(),
+    notes: z.string().max(2000).default(""),
+  }),
 };
 export const opportunitySchema = z
   .object({

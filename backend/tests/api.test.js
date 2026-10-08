@@ -1305,6 +1305,59 @@ test("athlete cannot change sport once sport is locked", async () => {
   assert.equal(checkProf.body.sportLocked, true);
 });
 
+test("complete multi-module user journey and consolidated monitoring context", async () => {
+  // Re-associate coachId on athlete profile
+  const currProf = (await call("/profile", "GET", null, athlete)).body;
+  await call("/profile", "PUT", { ...currProf, coachId: "coach@example.test" }, athlete);
+
+  // 1. Fetch consolidated context
+  const contextRes = await call("/context", "GET", null, athlete);
+  assert.equal(contextRes.status, 200);
+  assert.ok(contextRes.body.athlete);
+  assert.ok(contextRes.body.readiness);
+  assert.ok(contextRes.body.training);
+  assert.ok(contextRes.body.recovery);
+  assert.ok(contextRes.body.alerts);
+
+  // 2. Post daily recovery check-in
+  const checkInRes = await call("/records/recovery_logs", "POST", {
+    date: "2026-10-08",
+    sleepDuration: 8.5,
+    sleepQuality: "Excellent",
+    fatigue: 2,
+    stress: 2,
+    mood: 9,
+    soreness: 2,
+    generalRecovery: 9,
+    painFlag: false,
+    painLevel: 0,
+    painArea: "",
+    previousSessionRPE: 6,
+    previousSessionDifficulty: "Moderate",
+    hydration: "Good",
+    travel: false,
+    unusualStress: false,
+    notes: "Felt strong during warmup",
+  }, athlete);
+  assert.equal(checkInRes.status, 201);
+
+  // 3. Verify readiness endpoint updates
+  const readinessRes = await call("/recovery/readiness", "GET", null, athlete);
+  assert.equal(readinessRes.status, 200);
+  assert.equal(readinessRes.body.todayLog.sleepDuration, 8.5);
+
+  // 4. Verify training load endpoint
+  const loadRes = await call("/training/load", "GET", null, athlete);
+  assert.equal(loadRes.status, 200);
+  assert.ok(loadRes.body.acwr);
+
+  // 5. Verify coach dossier returns readiness & files
+  const dossierRes = await call(`/coach/athletes/${profile.id}`, "GET", null, coach);
+  assert.equal(dossierRes.status, 200);
+  assert.ok(dossierRes.body.readiness);
+  assert.ok(Array.isArray(dossierRes.body.files));
+});
+
 test("record and account deletion revoke access", async () => {
   assert.equal(
     (await call("/records/sessions/" + session.id, "DELETE", null, athlete))

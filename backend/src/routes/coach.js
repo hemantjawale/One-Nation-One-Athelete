@@ -5,6 +5,8 @@ import { BenchmarkService } from "../services/benchmarkService.js";
 import { EXERCISE_LIBRARY, SPRINT_QUALITIES } from "../services/trainingKnowledge.js";
 import { normalizeProfile, calculateAge } from "../services/sports.js";
 import { text, num, date } from "../services/schemas.js";
+import { calculateRecoveryReadiness } from "../services/intelligence.js";
+import { allRecords } from "./records.js";
 
 const daySessionSchema = z.object({
   dayIndex: z.coerce.number().min(0).max(6).optional(),
@@ -472,6 +474,10 @@ export function coachRoutes(db) {
     const realityCheck = await engine.generateRealityCheck(p, sessions);
     const activePlan = await engine.getOrCreateWeeklyPlan({ athlete: p });
 
+    const recoveryLogs = (await db.list("recovery_logs", { ownerId: p.id })) || [];
+    const allAthleteRecords = await allRecords(db, p.id);
+    const readiness = calculateRecoveryReadiness(allAthleteRecords, recoveryLogs);
+
     // Performance comparison with sport-aware benchmarks
     const benchmarkComparison = await benchmarkService
       .getComparison(normalizeProfile(p), sessions)
@@ -545,7 +551,10 @@ export function coachRoutes(db) {
         safetyFlags,
         latestFatigue: sessions[0]?.fatigue ?? null,
         latestPain: sessions[0]?.pain ?? null,
+        logs: recoveryLogs,
+        readiness,
       },
+      readiness,
       roadmap,
       goals,
       realityCheck,
@@ -555,6 +564,7 @@ export function coachRoutes(db) {
       sessions,
       achievements,
       injuries,
+      files: await db.list("files", { ownerId: p.id }),
     });
   }
 
@@ -1108,6 +1118,38 @@ export function coachRoutes(db) {
             date: new Date().toISOString().slice(0, 10),
           });
         }
+      }
+
+      // 6. Video Review Requested Alert
+      const videoFiles = (await db.list("files", { ownerId: p.id })) || [];
+      const reviewReqVideo = videoFiles.find((f) => f.requestCoachReview);
+      if (reviewReqVideo) {
+        notifications.push({
+          id: `notif-video-${p.id}-${reviewReqVideo.id}`,
+          type: "info",
+          category: "video",
+          athleteId: p.id,
+          athleteName: p.name,
+          title: "Technique Video Review Requested",
+          message: `${p.name} requested technique review on clip '${reviewReqVideo.name}'.`,
+          date: new Date().toISOString().slice(0, 10),
+        });
+      }
+
+      // 7. Low Recovery / Readiness Alert
+      const recoveryLogs = (await db.list("recovery_logs", { ownerId: p.id })) || [];
+      const readiness = calculateRecoveryReadiness([], recoveryLogs);
+      if (readiness.readiness === "RECOVERY PRIORITY" || readiness.readiness === "COACH REVIEW") {
+        notifications.push({
+          id: `notif-readiness-${p.id}-${readiness.todayLog?.date || new Date().toISOString().slice(0, 10)}`,
+          type: readiness.readiness === "COACH REVIEW" ? "danger" : "warning",
+          category: "recovery",
+          athleteId: p.id,
+          athleteName: p.name,
+          title: `Recovery Alert: ${readiness.readiness}`,
+          message: `${p.name}'s readiness indicator is ${readiness.readiness}: ${readiness.reason}`,
+          date: readiness.todayLog?.date || new Date().toISOString().slice(0, 10),
+        });
       }
     }
 
