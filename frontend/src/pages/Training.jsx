@@ -99,6 +99,7 @@ export default function Training() {
   const [editMonthBroadJump, setEditMonthBroadJump] = useState("");
 
   const currentPlan = activeTab === "coach-plan" ? coachPlan : aiPlan;
+  const activeCheckInPlan = activeCheckingPlan || currentPlan;
 
   async function loadTrainingData() {
     try {
@@ -949,17 +950,17 @@ export default function Training() {
       )}
 
       {/* MODAL 1: DAILY CHECK-IN DIALOG */}
-      {selectedDayIndex !== null && plan?.days?.[selectedDayIndex] && (
+      {selectedDayIndex !== null && activeCheckInPlan?.days?.[selectedDayIndex] && (
         <Modal
-          title={`Daily Training Check-in · ${plan.days[selectedDayIndex].dayOfWeek} (${plan.days[selectedDayIndex].date})`}
+          title={`Daily Training Check-in · ${activeCheckInPlan.days[selectedDayIndex].dayOfWeek} (${activeCheckInPlan.days[selectedDayIndex].date})`}
           onClose={() => setSelectedDayIndex(null)}
         >
           <div style={{ maxHeight: "75vh", overflowY: "auto", paddingRight: 4 }}>
             <div style={{ marginBottom: 14 }}>
-              <span className="pill small">{plan.days[selectedDayIndex].sessionType}</span>
-              <h3 style={{ margin: "6px 0 2px" }}>{plan.days[selectedDayIndex].objective}</h3>
+              <span className="pill small">{activeCheckInPlan.days[selectedDayIndex].sessionType}</span>
+              <h3 style={{ margin: "6px 0 2px" }}>{activeCheckInPlan.days[selectedDayIndex].objective}</h3>
               <p style={{ fontSize: 12, color: "#606d53", margin: 0 }}>
-                Duration: {plan.days[selectedDayIndex].expectedDuration} min · Target Intensity: {plan.days[selectedDayIndex].targetIntensity}
+                Duration: {activeCheckInPlan.days[selectedDayIndex].expectedDuration} min · Target Intensity: {activeCheckInPlan.days[selectedDayIndex].targetIntensity}
               </p>
             </div>
 
@@ -1018,10 +1019,10 @@ export default function Training() {
             )}
 
             {/* Planned Exercises Review */}
-            {checkInStatus !== "missed" && plan.days[selectedDayIndex].exercises?.length > 0 && (
+            {checkInStatus !== "missed" && activeCheckInPlan.days[selectedDayIndex].exercises?.length > 0 && (
               <div style={{ margin: "14px 0", background: "#f8f9f5", padding: 12, borderRadius: 4 }}>
                 <strong style={{ fontSize: 12, color: "#37422d" }}>Planned Main Training:</strong>
-                {plan.days[selectedDayIndex].exercises.map((ex, idx) => (
+                {activeCheckInPlan.days[selectedDayIndex].exercises.map((ex, idx) => (
                   <div key={idx} style={{ marginTop: 6, fontSize: 12, color: "#4d5940" }}>
                     • {ex.name}: {ex.sets} sets &times; {ex.reps} reps {ex.distance ? `(${ex.distance})` : ""} · Rest: {ex.rest}
                   </div>
