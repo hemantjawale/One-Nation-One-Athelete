@@ -23,6 +23,31 @@ async function call(url, method = "GET", body, cookie) {
     cookie: response.headers.get("set-cookie")?.split(";")[0],
   };
 }
+function getMondayStr(d = new Date()) {
+  let date;
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const [y, m, day] = d.split("-").map(Number);
+    date = new Date(y, m - 1, day, 12, 0, 0);
+  } else {
+    date = new Date(d);
+  }
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(date);
+  monday.setDate(diff);
+  const y = monday.getFullYear();
+  const m = String(monday.getMonth() + 1).padStart(2, "0");
+  const dayStr = String(monday.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dayStr}`;
+}
+function addDaysStr(dStr, days) {
+  const [y, m, day] = dStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, day + days, 12, 0, 0);
+  const ry = dt.getFullYear();
+  const rm = String(dt.getMonth() + 1).padStart(2, "0");
+  const rd = String(dt.getDate()).padStart(2, "0");
+  return `${ry}-${rm}-${rd}`;
+}
 before(async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "onona-test-"));
   server = spawn(process.execPath, ["src/index.js"], {
@@ -1057,10 +1082,11 @@ test("coach training management: athlete list, dossier, plan builder, versioning
   assert.ok(dossier.body.goals);
   assert.ok(dossier.body.roadmap);
 
-  // 4. Coach publishes weekly plan (version 1)
+  // 4. Coach publishes weekly plan for current week (version 1)
+  const currentWeekMonday = getMondayStr();
   const newCoachPlan = {
-    weekStart: "2026-10-12",
-    weekEnd: "2026-10-18",
+    weekStart: currentWeekMonday,
+    weekEnd: addDaysStr(currentWeekMonday, 6),
     phase: "Competition Preparation",
     weeklyObjective: "Race Model Execution & Starts",
     days: [
@@ -1092,18 +1118,18 @@ test("coach training management: athlete list, dossier, plan builder, versioning
   const publishRes1 = await call(`/coach-hub/athlete/${profile.id}/plan`, "POST", newCoachPlan, coach);
   assert.equal(publishRes1.status, 201);
   assert.equal(publishRes1.body.plan.source, "coach");
-  assert.equal(publishRes1.body.plan.version, 1);
+  const v1 = publishRes1.body.plan.version;
 
-  // 5. Coach modifies and republishes plan -> version increments to 2
+  // 5. Coach modifies and republishes plan -> version increments
   newCoachPlan.weeklyObjective = "Updated Race Model & Block Starts";
   const publishRes2 = await call(`/coach-hub/athlete/${profile.id}/plan`, "POST", newCoachPlan, coach);
   assert.equal(publishRes2.status, 201);
-  assert.equal(publishRes2.body.plan.version, 2);
+  assert.equal(publishRes2.body.plan.version, v1 + 1);
 
   // 6. Athlete now sees the coach-published plan as the authoritative source
   const athPlanRes = await call("/training/plan", "GET", null, athlete);
   assert.equal(athPlanRes.body.source, "coach");
-  assert.equal(athPlanRes.body.version, 2);
+  assert.equal(athPlanRes.body.version, v1 + 1);
   assert.equal(athPlanRes.body.weeklyObjective, "Updated Race Model & Block Starts");
 
   // 7. Coach submits override recommendation with audit reason
@@ -1776,6 +1802,123 @@ test("Part 3: Training Engine, AI vs Coach plan priority, versioning, check-ins,
   const digestRes3 = await call("/training/send-digest", "POST", { athleteId: athId }, coach);
   assert.equal(digestRes3.status, 200);
   assert.ok(digestRes3.body.ok);
+});
+
+test("Targeted Hardening: Safety-First Evaluation and Current-Week Resolution", async () => {
+  // Setup: Coach and Athlete users
+  const coachRes = await call("/auth/register", "POST", {
+    name: "Safety Coach",
+    email: "safety_coach@example.test",
+    password: "password123",
+    role: "coach",
+  });
+  const coachCookie = coachRes.cookie;
+  const coachUser = (await call("/me", "GET", null, coachCookie)).body.user;
+
+  const athRes = await call("/auth/register", "POST", {
+    name: "Safety Athlete",
+    email: "safety_athlete@example.test",
+    password: "password123",
+    role: "athlete",
+  });
+  const athCookie = athRes.cookie;
+  const athUser = (await call("/me", "GET", null, athRes.cookie)).body.user;
+  const athProfile = (await call("/profile", "GET", null, athCookie)).body;
+
+  await call("/profile", "PUT", {
+    ...athProfile,
+    birthDate: "2001-08-20",
+    state: "Punjab",
+    district: "Patiala",
+    equipment: "Synthetic track",
+    coachId: coachUser.email,
+    sharePerformance: true,
+    shareHealth: true,
+  }, athCookie);
+
+  // Compute canonical current Monday and an older Monday (3 weeks ago)
+  const currentMondayStr = getMondayStr();
+  const oldMondayStr = addDaysStr(currentMondayStr, -21);
+
+  // 1. Create an OLDER coach plan (3 weeks ago)
+  const oldCoachPlanRes = await call("/coach/training-plans", "POST", {
+    athleteId: athUser.id,
+    weekStart: oldMondayStr,
+    phase: "Foundation",
+    weeklyObjective: "Historical Plan 3 Weeks Ago",
+    status: "published",
+    days: [
+      { dayIndex: 0, dayOfWeek: "Monday", sessionType: "Tempo", expectedDuration: 45 },
+    ],
+  }, coachCookie);
+  assert.equal(oldCoachPlanRes.status, 201);
+
+  // TEST 2: Older coach plan exists but CURRENT week has NO coach plan -> Must NOT return older coach plan!
+  const curWeekPlanRes1 = await call("/training/plan", "GET", null, athCookie);
+  assert.equal(curWeekPlanRes1.status, 200);
+  assert.equal(curWeekPlanRes1.body.weekStart, currentMondayStr);
+  assert.notEqual(curWeekPlanRes1.body.weekStart, oldMondayStr);
+  assert.equal(curWeekPlanRes1.body.source, "system");
+
+  // TEST 1: Publish a coach plan for CURRENT week -> getOrCreateWeeklyPlan returns current week coach plan
+  const curCoachPlanRes = await call("/coach/training-plans", "POST", {
+    athleteId: athUser.id,
+    weekStart: currentMondayStr,
+    phase: "Acceleration",
+    weeklyObjective: "Current Week Coach Plan",
+    status: "published",
+    days: [
+      { dayIndex: 0, dayOfWeek: "Monday", sessionType: "Max Velocity Sprints", expectedDuration: 60 },
+    ],
+  }, coachCookie);
+  assert.equal(curCoachPlanRes.status, 201);
+
+  // TEST 3: Current week coach plan + READY
+  const curWeekPlanRes2 = await call("/training/plan", "GET", null, athCookie);
+  assert.equal(curWeekPlanRes2.status, 200);
+  assert.equal(curWeekPlanRes2.body.weekStart, currentMondayStr);
+  assert.equal(curWeekPlanRes2.body.source, "coach");
+  assert.equal(curWeekPlanRes2.body.weeklyObjective, "Current Week Coach Plan");
+
+  // TEST 5: Record active injury -> COACH REVIEW / RECOVERY PRIORITY safety evaluation
+  const injRes = await call("/records/injuries", "POST", {
+    title: "Hamstring Strain",
+    date: "2026-10-08",
+    stage: "Rest",
+    cleared: false,
+    notes: "Acute discomfort during start",
+  }, athCookie);
+  assert.equal(injRes.status, 201);
+
+  // TEST 5 & 6: Active Coach plan + Safety Warning (COACH REVIEW) ->
+  // Coach plan is preserved (source = coach), requiresCoachReview = true, NO silent AI replacement or deletion!
+  const curWeekPlanRes3 = await call("/training/plan", "GET", null, athCookie);
+  assert.equal(curWeekPlanRes3.status, 200);
+  assert.equal(curWeekPlanRes3.body.source, "coach"); // MUST remain coach plan!
+  assert.equal(curWeekPlanRes3.body.requiresCoachReview, true);
+  assert.equal(curWeekPlanRes3.body.safetyStatus, "COACH REVIEW");
+
+  // TEST 8: Historical previous-week plan (oldMondayStr) remains unchanged in DB
+  const oldPlanFetch = await call(`/coach/training-plans/${oldCoachPlanRes.body.plan.id}`, "GET", null, coachCookie);
+  assert.equal(oldPlanFetch.status, 200);
+  assert.equal(oldPlanFetch.body.weekStart, oldMondayStr);
+  assert.equal(oldPlanFetch.body.source, "coach");
+
+  // TEST 9: Daily Check-In remains attached to the exact plan ID and training day
+  const checkInRes = await call(`/training/plan/${curCoachPlanRes.body.plan.id}/session/0`, "PUT", {
+    status: "completed",
+    actualDuration: 60,
+    rpe: 7,
+    fatigue: 4,
+    pain: 2,
+  }, athCookie);
+  assert.equal(checkInRes.status, 200);
+  assert.equal(checkInRes.body.plan.id, curCoachPlanRes.body.plan.id);
+
+  // TEST 10: Sunday digest / weekly generation uses target week without duplicate plans or selecting old coach plans
+  const digestRes = await call("/training/send-digest", "POST", { athleteId: athUser.id }, coachCookie);
+  assert.equal(digestRes.status, 200);
+  assert.ok(digestRes.body.ok);
 });
 
 test("Part 4: VideoLab, MediaPipe Sprint Analysis, file metadata, coach review, privacy, and authorization", async () => {

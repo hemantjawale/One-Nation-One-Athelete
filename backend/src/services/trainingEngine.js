@@ -1,5 +1,6 @@
 import { calculateAge } from "./sports.js";
 import { EXERCISE_LIBRARY, SPRINT_QUALITIES } from "./trainingKnowledge.js";
+import { calculateRecoveryReadiness } from "./intelligence.js";
 
 /**
  * Game-like Level Definitions for Sprint Roadmap (Levels 1 to 6)
@@ -317,54 +318,97 @@ export class TrainingEngine {
    *
    * Coach published plans MUST NOT be overwritten by system AI generation!
    */
+  /**
+   * Generates or fetches the active Weekly Plan for the athlete.
+   * Enforces strict priority & current week resolution:
+   * 1. Determine canonical Target Week (Monday YYYY-MM-DD for current week if weekStartDate is null)
+   * 2. Calculate Athlete Safety/Readiness Context from stored data (calculateRecoveryReadiness)
+   * 3. Search for published coach plan for TARGET WEEK ONLY (source = "coach", status != "draft")
+   * 4. Apply safety status & flags to the active plan response without mutating/deleting coach plan
+   * 5. Fallback to System/AI plan for TARGET WEEK ONLY if no coach plan exists for target week
+   */
   async getOrCreateWeeklyPlan({ athlete, weekStartDate = null, publishedOnly = false }) {
+    // 1. Resolve canonical Target Week (Monday YYYY-MM-DD)
+    const weekStartStr = this.getMondayStr(weekStartDate || new Date());
+    const monday = this.getMondayOfWeek(weekStartStr);
+
+    // 2. Authoritative Safety & Recovery Readiness Evaluation
+    const recoveryLogs = (await this.db.list("recovery_logs", { ownerId: athlete.id })) || [];
+    const sessions = (await this.db.list("sessions", { ownerId: athlete.id })) || [];
+    const injuries = (await this.db.list("injuries", { ownerId: athlete.id })) || [];
+    const achievements = (await this.db.list("achievements", { ownerId: athlete.id })) || [];
+
+    const allRecords = [
+      ...sessions.map((s) => ({ ...s, kind: "sessions" })),
+      ...injuries.map((i) => ({ ...i, kind: "injuries" })),
+      ...achievements.map((a) => ({ ...a, kind: "achievements" })),
+    ];
+
+    const readinessData = calculateRecoveryReadiness(allRecords, recoveryLogs);
+
+    const safetyContext = {
+      safetyStatus: readinessData.readiness, // "READY", "READY WITH CAUTION", "RECOVERY PRIORITY", "COACH REVIEW", "LIMITED DATA"
+      safetyColor: readinessData.statusColor,
+      safetyReason: readinessData.reason || "",
+      safetyFlags: readinessData.reasons || [],
+      requiresCoachReview:
+        readinessData.readiness === "COACH REVIEW" ||
+        readinessData.readiness === "RECOVERY PRIORITY",
+    };
+
+    // 3. Search for published Coach Plan for TARGET WEEK ONLY
     let allPlans = (await this.db.list("plans", { athleteId: athlete.id })) || [];
 
-    // Priority 2: Check if a published coach plan exists
-    const coachPublishedPlans = allPlans
-      .filter((p) => p.source === "coach" && p.status !== "draft")
-      .sort((a, b) => (b.weekStart || "").localeCompare(a.weekStart || ""));
+    const targetCoachPlan = allPlans.find(
+      (p) =>
+        p.athleteId === athlete.id &&
+        p.weekStart === weekStartStr &&
+        p.source === "coach" &&
+        p.status !== "draft",
+    );
 
-    if (weekStartDate) {
-      const targetCoachPlan = coachPublishedPlans.find((p) => p.weekStart === weekStartDate);
-      if (targetCoachPlan) return targetCoachPlan;
-    } else if (coachPublishedPlans.length > 0) {
-      return coachPublishedPlans[0];
+    if (targetCoachPlan) {
+      // Return target week's coach plan decorated with safety context.
+      // ORIGINAL COACH PLAN REMAINS HISTORICALLY INTACT & UNMUTATED IN DB!
+      return {
+        ...targetCoachPlan,
+        ...safetyContext,
+      };
     }
 
-    // Determine target Monday for the week
-    const now = new Date();
-    const monday = weekStartDate
-      ? new Date(weekStartDate)
-      : this.getMondayOfWeek(now);
-    const weekStartStr = monday.toISOString().slice(0, 10);
-
-    const planId = `plan-${athlete.id}-${weekStartStr}`;
+    // 4. Search for existing System/AI plan for TARGET WEEK ONLY
+    const defaultPlanId = `plan-${athlete.id}-${weekStartStr}`;
     const aiPlanId = `plan-ai-${athlete.id}-${weekStartStr}`;
 
-    const existing = (await this.db.get("plans", planId)) || (await this.db.get("plans", aiPlanId));
-    if (existing) {
-      if (existing.source === "coach" && existing.status !== "draft") {
-        return existing;
-      }
-      if (!publishedOnly || existing.status !== "draft") {
-        return existing;
+    const existingSystemPlan = allPlans.find(
+      (p) =>
+        p.weekStart === weekStartStr &&
+        (p.id === defaultPlanId || p.id === aiPlanId) &&
+        (p.source === "system" || p.source === "coach_modified"),
+    );
+
+    if (existingSystemPlan) {
+      if (!publishedOnly || existingSystemPlan.status !== "draft") {
+        return {
+          ...existingSystemPlan,
+          ...safetyContext,
+        };
       }
     }
 
-    // Gather athlete context, sessions, and previous plan for adaptive generation
-    const sessions = await this.db.list("sessions", { ownerId: athlete.id });
-    const injuries = await this.db.list("injuries", { ownerId: athlete.id });
+    // 5. Generate Adaptive System/AI Plan for TARGET WEEK if none exists
     const profile = this.getAthleteTrainingProfile(athlete, sessions, injuries);
 
-    // Look for previous week's plan to adapt from
+    // Previous week's plan to adapt from
     const prevMonday = new Date(monday.getTime() - 7 * 86400000);
-    const prevPlanId = `plan-${athlete.id}-${prevMonday.toISOString().slice(0, 10)}`;
+    const prevWeekStartStr = prevMonday.toISOString().slice(0, 10);
+    const prevPlanId = `plan-${athlete.id}-${prevWeekStartStr}`;
+    const prevAiPlanId = `plan-ai-${athlete.id}-${prevWeekStartStr}`;
     const previousPlan =
       (await this.db.get("plans", prevPlanId)) ||
-      (await this.db.get("plans", `plan-ai-${athlete.id}-${prevMonday.toISOString().slice(0, 10)}`));
+      (await this.db.get("plans", prevAiPlanId)) ||
+      allPlans.find((p) => p.weekStart === prevWeekStartStr);
 
-    // Generate Adaptive System/AI Plan
     const adaptivePlan = this.generateAdaptiveWeeklyPlan({
       athlete,
       profile,
@@ -372,11 +416,15 @@ export class TrainingEngine {
       monday,
       previousPlan,
       sessions,
-      existingPlan: existing?.source === "system" ? existing : null,
+      existingPlan: existingSystemPlan?.source === "system" ? existingSystemPlan : null,
     });
 
     await this.db.put("plans", adaptivePlan);
-    return adaptivePlan;
+
+    return {
+      ...adaptivePlan,
+      ...safetyContext,
+    };
   }
 
   /**
@@ -1116,12 +1164,29 @@ export class TrainingEngine {
 
   // --- Helper Date Functions ---
   getMondayOfWeek(d) {
-    const date = new Date(d);
+    let date;
+    if (!d) {
+      date = new Date();
+    } else if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      const [y, m, day] = d.split("-").map(Number);
+      date = new Date(y, m - 1, day, 12, 0, 0);
+    } else {
+      date = new Date(d);
+    }
     const day = date.getDay();
-    const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
-    const monday = new Date(date.setDate(diff));
-    monday.setHours(0, 0, 0, 0);
+    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(date);
+    monday.setDate(diff);
+    monday.setHours(12, 0, 0, 0);
     return monday;
+  }
+
+  getMondayStr(d) {
+    const monday = this.getMondayOfWeek(d);
+    const y = monday.getFullYear();
+    const m = String(monday.getMonth() + 1).padStart(2, "0");
+    const day = String(monday.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
   }
 
   addDays(date, days) {

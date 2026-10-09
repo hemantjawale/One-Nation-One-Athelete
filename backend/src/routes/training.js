@@ -64,9 +64,8 @@ export function trainingRoutes(db) {
     }
 
     if (req.query.source === "ai" || req.query.source === "system") {
-      const now = new Date();
-      const monday = req.query.weekStart ? new Date(req.query.weekStart) : engine.getMondayOfWeek(now);
-      const weekStartStr = monday.toISOString().slice(0, 10);
+      const weekStartStr = engine.getMondayStr(req.query.weekStart || new Date());
+      const monday = engine.getMondayOfWeek(weekStartStr);
       const aiPlanId = `plan-ai-${req.user.id}-${weekStartStr}`;
       let aiPlan = await db.get("plans", aiPlanId);
       if (!aiPlan) {
@@ -107,9 +106,8 @@ export function trainingRoutes(db) {
   r.get("/plan/both", async (req, res) => {
     const rawProfile = (await db.get("profiles", req.user.id)) || {};
     const athlete = { id: req.user.id, ...rawProfile };
-    const now = new Date();
-    const monday = req.query.weekStart ? new Date(req.query.weekStart) : engine.getMondayOfWeek(now);
-    const weekStartStr = monday.toISOString().slice(0, 10);
+    const weekStartStr = engine.getMondayStr(req.query.weekStart || new Date());
+    const monday = engine.getMondayOfWeek(weekStartStr);
 
     // 1. Coach Plan (published only)
     const allPlans = (await db.list("plans", { athleteId: req.user.id })) || [];
