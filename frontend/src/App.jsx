@@ -35,18 +35,35 @@ import Landing from "./pages/Landing";
 import Auth from "./components/Auth";
 import { Brand, Modal, Editor } from "./components/UI";
 import { api, pending, enqueue, sync, queueKey } from "./lib/api";
-const Dashboard = lazy(() => import("./pages/Dashboard")),
-  Passport = lazy(() => import("./pages/Passport")),
-  Performance = lazy(() => import("./pages/Performance")),
-  Training = lazy(() => import("./pages/Training")),
-  Recovery = lazy(() => import("./pages/Recovery")),
-  Opportunities = lazy(() => import("./pages/Opportunities")),
-  Finance = lazy(() => import("./pages/Finance")),
-  Profile = lazy(() => import("./pages/Profile")),
-  Coach = lazy(() => import("./pages/Coach")),
-  Transparency = lazy(() => import("./pages/Transparency")),
-  Career = lazy(() => import("./pages/Career")),
-  VideoLab = lazy(() => import("./pages/VideoLab"));
+const safeLazy = (importFn) =>
+  lazy(async () => {
+    try {
+      const module = await importFn();
+      sessionStorage.removeItem("chunk_reload_retry");
+      return module;
+    } catch (err) {
+      const reloaded = sessionStorage.getItem("chunk_reload_retry");
+      if (!reloaded) {
+        sessionStorage.setItem("chunk_reload_retry", "true");
+        window.location.reload();
+        return new Promise(() => {});
+      }
+      throw err;
+    }
+  });
+
+const Dashboard = safeLazy(() => import("./pages/Dashboard")),
+  Passport = safeLazy(() => import("./pages/Passport")),
+  Performance = safeLazy(() => import("./pages/Performance")),
+  Training = safeLazy(() => import("./pages/Training")),
+  Recovery = safeLazy(() => import("./pages/Recovery")),
+  Opportunities = safeLazy(() => import("./pages/Opportunities")),
+  Finance = safeLazy(() => import("./pages/Finance")),
+  Profile = safeLazy(() => import("./pages/Profile")),
+  Coach = safeLazy(() => import("./pages/Coach")),
+  Transparency = safeLazy(() => import("./pages/Transparency")),
+  Career = safeLazy(() => import("./pages/Career")),
+  VideoLab = safeLazy(() => import("./pages/VideoLab"));
 const navigation = [
   ["overview", "Overview", LayoutDashboard],
   ["passport", "Athlete passport", Fingerprint],
