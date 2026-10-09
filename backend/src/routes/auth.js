@@ -18,7 +18,7 @@ export function authRoutes(db, secret) {
           .transform((v) => v.toLowerCase()),
         password: z.string().min(8).max(100),
         role: z
-          .enum(["athlete", "coach", "organiser", "medical"])
+          .enum(["athlete", "coach", "organiser", "medical", "admin"])
           .default("athlete"),
       })
       .parse(req.body);

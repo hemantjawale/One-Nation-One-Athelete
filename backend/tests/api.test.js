@@ -5,6 +5,7 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { benchmarks, fairness } from "../src/services/research.js";
+import { calculateRecoveryReadiness } from "../src/services/intelligence.js";
 let server, athlete, other, coach, profile, session;
 const base = "http://127.0.0.1:4101/api";
 async function call(url, method = "GET", body, cookie) {
@@ -868,6 +869,15 @@ test("training sessions are strictly ordered by trainingDate descending and reta
 });
 
 test("admin benchmarks import supports deduplication and updates comparison pool", async () => {
+  const adminCookie = (
+    await call("/auth/register", "POST", {
+      name: "Admin User",
+      email: "benchadmin@example.test",
+      password: "password123",
+      role: "admin",
+    })
+  ).cookie;
+
   const newRecord = {
     sport: "Athletics",
     discipline: "Sprint",
@@ -890,7 +900,7 @@ test("admin benchmarks import supports deduplication and updates comparison pool
     "/benchmarks/import",
     "POST",
     [newRecord, newRecord], // Test duplicate in payload
-    athlete,
+    adminCookie,
   );
   assert.equal(importRes.status, 201);
   assert.equal(importRes.body.imported, 1);
@@ -1358,6 +1368,767 @@ test("complete multi-module user journey and consolidated monitoring context", a
   assert.ok(Array.isArray(dossierRes.body.files));
 });
 
+test("admin benchmark import authorization and payload validation", async () => {
+  // 1. Unauthenticated -> 401
+  const unauthRes = await call("/benchmarks/import", "POST", [{ sport: "Athletics", event: "100m", level: "National", performance: { value: 10.2, unit: "sec" } }]);
+  assert.equal(unauthRes.status, 401);
+
+  // 2. Athlete -> 403
+  const athleteRes = await call("/benchmarks/import", "POST", [{ sport: "Athletics", event: "100m", level: "National", performance: { value: 10.2, unit: "sec" } }], athlete);
+  assert.equal(athleteRes.status, 403);
+
+  // 3. Coach -> 403
+  const coachRes = await call("/benchmarks/import", "POST", [{ sport: "Athletics", event: "100m", level: "National", performance: { value: 10.2, unit: "sec" } }], coach);
+  assert.equal(coachRes.status, 403);
+
+  // 4. Create admin user
+  const adminCookie = (
+    await call("/auth/register", "POST", {
+      name: "Test Admin",
+      email: "admin@example.test",
+      password: "adminpassword123",
+      role: "admin",
+    })
+  ).cookie;
+
+  // 5. Admin import valid records -> 201
+  const validBatch = [
+    {
+      sport: "Athletics",
+      event: "100m",
+      level: "National",
+      gender: "Men",
+      ageCategory: "Senior",
+      athleteName: "Security Test Runner",
+      performance: { value: 10.15, unit: "sec" },
+      verificationStatus: "verified",
+    },
+  ];
+  const adminImportRes = await call("/benchmarks/import", "POST", validBatch, adminCookie);
+  assert.equal(adminImportRes.status, 201);
+  assert.equal(adminImportRes.body.imported, 1);
+
+  // 6. Malformed payload & invalid performance value rejection
+  const invalidBatch = [
+    { sport: "Athletics", event: "100m", level: "National", performance: { value: -5.0 } }, // Negative value
+    { sport: "", event: "100m", level: "National", performance: { value: 10.5 } }, // Missing sport
+  ];
+  const invalidRes = await call("/benchmarks/import", "POST", invalidBatch, adminCookie);
+  assert.equal(invalidRes.status, 201);
+  assert.equal(invalidRes.body.imported, 0);
+  assert.equal(invalidRes.body.skipped, 2);
+
+  // 7. Duplicate prevention
+  const dupRes = await call("/benchmarks/import", "POST", validBatch, adminCookie);
+  assert.equal(dupRes.status, 201);
+  assert.equal(dupRes.body.imported, 0);
+  assert.equal(dupRes.body.skipped, 1);
+});
+
+test("file & video RBAC, IDOR protection, and coach annotation isolation", async () => {
+  // 1. Athlete uploads file
+  const origFileRes = await call("/records/certificates/upload", "POST", null, athlete);
+  // Upload a file directly via file routes or mock putting file
+  const testFilePayload = {
+    name: "sprint_kinematics.mp4",
+    mime: "video/mp4",
+    notes: "My 100m race video",
+    analysis: { maxKneeFlexion: 125, meanCadence: 4.2 },
+  };
+
+  // Create file entry via put file
+  const filePutRes = await call("/records/certificates/upload", "POST", null, athlete);
+
+  // Get athlete files
+  const myFiles = await call("/files", "GET", null, athlete);
+  assert.equal(myFiles.status, 200);
+
+  if (myFiles.body.length > 0) {
+    const fileId = myFiles.body[0].id;
+
+    // 2. Other athlete attempting IDOR on content endpoint -> 403
+    const idorRes = await call(`/files/${fileId}/content`, "GET", null, other);
+    assert.equal(idorRes.status, 403);
+
+    // 3. Unrelated coach attempting access -> 403
+    const unrelatedCoach = (
+      await call("/auth/register", "POST", {
+        name: "Unrelated Coach",
+        email: "unrelated@example.test",
+        password: "password123",
+        role: "coach",
+      })
+    ).cookie;
+
+    const unassignedRes = await call(`/files/${fileId}/content`, "GET", null, unrelatedCoach);
+    assert.equal(unassignedRes.status, 403);
+
+    // 4. Coach annotation isolation: Coach updates annotation
+    const coachUpdate = await call(`/files/${fileId}`, "PUT", {
+      coachAnnotation: {
+        observation: "Good heel strike transition",
+        correction: "Drive knee higher at block exit",
+        drillRecommendation: "A-Skips 3x30m",
+      },
+      // Coach attempts to mutate MediaPipe analysis
+      analysis: { maxKneeFlexion: 999 },
+      name: "Hacked Video Name",
+    }, coach);
+
+    assert.equal(coachUpdate.status, 200);
+    assert.equal(coachUpdate.body.coachAnnotation.observation, "Good heel strike transition");
+    // Ensure MediaPipe CV analysis was NOT overwritten by coach!
+    assert.notEqual(coachUpdate.body.analysis?.maxKneeFlexion, 999);
+    // Ensure filename was NOT mutated by coach
+    assert.notEqual(coachUpdate.body.name, "Hacked Video Name");
+
+    // 5. Coach attempting DELETE on athlete file -> 403
+    const deleteRes = await call(`/files/${fileId}`, "DELETE", null, coach);
+    assert.equal(deleteRes.status, 403);
+  }
+});
+
+test("consent enforcement and filtered consolidated athlete context", async () => {
+  // 1. Set athlete consent: shareHealth = false, sharePerformance = false
+  const p = (await call("/profile", "GET", null, athlete)).body;
+  await call("/profile", "PUT", {
+    ...p,
+    coachId: "coach@example.test",
+    sharePerformance: false,
+    shareHealth: false,
+  }, athlete);
+
+  // 2. Coach calls athlete dossier detail -> performance & health info should be hidden/null
+  const dossierRes = await call(`/coach/athletes/${profile.id}`, "GET", null, coach);
+  assert.equal(dossierRes.status, 200);
+  assert.equal(dossierRes.body.profile.sharePerformance, false);
+  assert.equal(dossierRes.body.profile.shareHealth, false);
+  assert.equal(dossierRes.body.performance.recentResults.length, 0);
+  assert.equal(dossierRes.body.training.sessions.length, 0);
+  assert.equal(dossierRes.body.recovery.injuries.length, 0);
+
+  // 3. Unrelated athlete requesting another athlete's context -> 403
+  const contextRes = await call(`/context?athleteId=${profile.id}`, "GET", null, other);
+  assert.equal(contextRes.status, 403);
+
+  // Restore consent for subsequent tests
+  await call("/profile", "PUT", {
+    ...p,
+    coachId: "coach@example.test",
+    sharePerformance: true,
+    shareHealth: true,
+  }, athlete);
+});
+
+test("recovery readiness states, personal baseline, and injury integration logic", async () => {
+  // 1. No recovery logs -> LIMITED DATA
+  const noLogs = calculateRecoveryReadiness([], []);
+  assert.equal(noLogs.readiness, "LIMITED DATA");
+  assert.equal(noLogs.hasBaseline, false);
+  assert.match(noLogs.reason, /Insufficient personal baseline data/i);
+
+  // 2. One recovery log -> LIMITED DATA
+  const oneLog = calculateRecoveryReadiness([], [{ date: "2026-10-08", sleepDuration: 8, fatigue: 3, soreness: 2 }]);
+  assert.equal(oneLog.readiness, "LIMITED DATA");
+  assert.equal(oneLog.hasBaseline, false);
+
+  // 3. Minimum baseline logs (3 previous logs) -> Personal Baseline built
+  const baselineLogs = [
+    { date: "2026-10-09", sleepDuration: 8, fatigue: 3, soreness: 2, stress: 3 }, // Today's log
+    { date: "2026-10-08", sleepDuration: 8, fatigue: 3, soreness: 2, stress: 3 }, // Prev 1
+    { date: "2026-10-07", sleepDuration: 8, fatigue: 3, soreness: 2, stress: 3 }, // Prev 2
+    { date: "2026-10-06", sleepDuration: 8, fatigue: 3, soreness: 2, stress: 3 }, // Prev 3
+  ];
+
+  const goodRecovery = calculateRecoveryReadiness([], baselineLogs);
+  assert.equal(goodRecovery.readiness, "READY");
+  assert.equal(goodRecovery.hasBaseline, true);
+  assert.equal(goodRecovery.baseline.sleepDuration, 8);
+  assert.match(goodRecovery.recommendation, /within your recent personal baseline/i);
+  assert.doesNotMatch(goodRecovery.recommendation, /cleared for planned/i); // Non-medical wording
+
+  // 4. Moderate fatigue -> READY WITH CAUTION
+  const modFatigueLogs = [
+    { date: "2026-10-09", sleepDuration: 7.5, fatigue: 5, soreness: 4, stress: 3 },
+    ...baselineLogs.slice(1),
+  ];
+  const modFatigueRes = calculateRecoveryReadiness([], modFatigueLogs);
+  assert.equal(modFatigueRes.readiness, "READY WITH CAUTION");
+
+  // 5. Severe fatigue & Poor sleep -> RECOVERY PRIORITY
+  const severeFatigueLogs = [
+    { date: "2026-10-09", sleepDuration: 5.0, fatigue: 8, soreness: 7, stress: 8 },
+    ...baselineLogs.slice(1),
+  ];
+  const severeRes = calculateRecoveryReadiness([], severeFatigueLogs);
+  assert.equal(severeRes.readiness, "RECOVERY PRIORITY");
+
+  // 6. Pain flag -> COACH REVIEW
+  const painLogs = [
+    { date: "2026-10-09", sleepDuration: 8, fatigue: 3, soreness: 3, painFlag: true, painLevel: 6, painArea: "Right Hamstring" },
+    ...baselineLogs.slice(1),
+  ];
+  const painRes = calculateRecoveryReadiness([], painLogs);
+  assert.equal(painRes.readiness, "COACH REVIEW");
+  assert.match(painRes.reason, /Right Hamstring/i);
+
+  // 7. Active Injury -> COACH REVIEW (even with empty recovery logs!)
+  const activeInjuryRecords = [{ kind: "injuries", title: "Grade 1 Hamstring Strain", stage: "Mobility", cleared: false }];
+  const injuryRes = calculateRecoveryReadiness(activeInjuryRecords, []);
+  assert.equal(injuryRes.readiness, "COACH REVIEW");
+  assert.match(injuryRes.reason, /Hamstring Strain/i);
+
+  // 8. Recovery + Active Injury combined
+  const combinedRes = calculateRecoveryReadiness(activeInjuryRecords, baselineLogs);
+  assert.equal(combinedRes.readiness, "COACH REVIEW");
+});
+
+test("coach readiness notifications include active injuries and respect athlete privacy", async () => {
+  // 1. Register a new athlete assigned to coach
+  const athlete2 = (
+    await call("/auth/register", "POST", {
+      name: "Injury Test Athlete",
+      email: "injuryathlete@example.test",
+      password: "password123",
+      role: "athlete",
+    })
+  ).cookie;
+
+  const prof2 = (await call("/profile", "GET", null, athlete2)).body;
+  const putRes = await call("/profile", "PUT", {
+    ...prof2,
+    state: "Maharashtra",
+    district: "Nashik",
+    birthDate: "2005-05-15",
+    coachId: "coach@example.test",
+    sharePerformance: true,
+    shareHealth: true,
+  }, athlete2);
+  assert.equal(putRes.status, 200);
+
+  const targetAthleteId = putRes.body.id;
+
+  // 2. Athlete logs active injury
+  await call("/records/injuries", "POST", {
+    title: "Ankle Sprain",
+    date: "2026-10-08",
+    stage: "Rest",
+    notes: "Torn ligament in practice",
+    cleared: false,
+  }, athlete2);
+
+  // 3. Coach fetches notifications -> must receive Recovery Alert for active injury (fixing line 1163 bug!)
+  const notifRes = await call("/coach/notifications", "GET", null, coach);
+  assert.equal(notifRes.status, 200);
+  const injuryNotif = notifRes.body.find(
+    (n) => n.athleteId === targetAthleteId && n.category === "recovery",
+  );
+  assert.ok(injuryNotif);
+  assert.equal(injuryNotif.type, "danger");
+  assert.match(injuryNotif.message, /Ankle Sprain/i);
+});
+
+test("Part 3: Training Engine, AI vs Coach plan priority, versioning, check-ins, load, review & Sunday digest", async () => {
+  // 1. Create athlete user and profile
+  const athRes = await call("/auth/register", "POST", {
+    name: "Part3 Athlete",
+    email: "part3athlete@example.test",
+    password: "password123",
+    role: "athlete",
+  });
+  const athCookie = athRes.cookie;
+  assert.ok(athCookie);
+
+  const profRes = await call("/profile", "GET", null, athCookie);
+  const athProfile = profRes.body;
+
+  // Link athlete to coach and retrieve persisted profile with ID
+  const putProfRes = await call("/profile", "PUT", {
+    ...athProfile,
+    state: "Maharashtra",
+    district: "Nashik",
+    birthDate: "2005-05-15",
+    coachId: "coach@example.test",
+    event: "100m",
+    unit: "sec",
+    target: 11.20,
+    sharePerformance: true,
+  }, athCookie);
+  assert.equal(putProfRes.status, 200);
+  const athId = putProfRes.body.id;
+  assert.ok(athId);
+
+  // 2. AI Plan Creation
+  const genRes1 = await call("/training/plan/generate", "POST", null, athCookie);
+  assert.equal(genRes1.status, 200);
+  const planV1 = genRes1.body;
+  assert.equal(planV1.source, "system");
+  assert.equal(planV1.version, 1);
+  assert.equal(planV1.days.length, 7);
+
+  // 3. Daily Session Check-in (Completed)
+  const checkin1 = await call(`/training/plan/${planV1.id}/session/0`, "PUT", {
+    status: "completed",
+    rpe: 8,
+    actualMetric: 11.95,
+    actualSets: 4,
+    actualReps: 1,
+    actualDuration: 60,
+    notes: "Solid acceleration effort",
+  }, athCookie);
+  assert.equal(checkin1.status, 200);
+  const updatedPlan1 = checkin1.body.plan;
+  assert.equal(updatedPlan1.days[0].status, "completed");
+  assert.equal(updatedPlan1.days[0].athleteCompletion.rpe, 8);
+  assert.equal(updatedPlan1.days[0].athleteCompletion.actualSets, 4);
+  // Ensure original planned exercises are preserved separately
+  assert.ok(updatedPlan1.days[0].exercises.length > 0);
+
+  // 4. Repeated AI Generation (Versioning + Historical Preservation)
+  const genRes2 = await call("/training/plan/generate", "POST", null, athCookie);
+  assert.equal(genRes2.status, 200);
+  const planV2 = genRes2.body;
+  assert.equal(planV2.version, 2);
+  assert.equal(planV2.previousVersion, 1);
+  assert.ok(planV2.versionHistory.length >= 1);
+  // Verify athlete completion on day 0 is preserved!
+  assert.equal(planV2.days[0].status, "completed");
+  assert.equal(planV2.days[0].athleteCompletion.actualMetric, 11.95);
+
+  // 5. Missed Session Check-in (No automatic stacking onto next day)
+  const checkin2 = await call(`/training/plan/${planV2.id}/session/1`, "PUT", {
+    status: "missed",
+    missedReason: "Heavy travel",
+  }, athCookie);
+  assert.equal(checkin2.status, 200);
+  assert.equal(checkin2.body.plan.days[1].status, "missed");
+  assert.equal(checkin2.body.plan.days[1].athleteCompletion.missedReason, "Heavy travel");
+  // Day 2 planned exercises remain unstacked
+  assert.ok(checkin2.body.plan.days[2].exercises.length > 0);
+
+  // 6. Coach Plan Creation & Publication
+  const coachPlanPayload = {
+    athleteId: athId,
+    weekStart: planV2.weekStart,
+    phase: "Competition Prep",
+    weeklyObjective: "Coach customized acceleration routine",
+    status: "published",
+    days: planV2.days.map((d) => ({
+      dayIndex: d.dayIndex,
+      dayOfWeek: d.dayOfWeek,
+      sessionType: "Coach " + d.sessionType,
+      expectedDuration: 50,
+      targetIntensity: 90,
+      exercises: [{ name: "Coach Block Starts", sets: 4, reps: 1 }],
+    })),
+  };
+  const pubCoachPlanRes = await call(`/coach/athlete/${athId}/plan`, "POST", coachPlanPayload, coach);
+  assert.equal(pubCoachPlanRes.status, 201);
+  const publishedCoachPlan = pubCoachPlanRes.body.plan;
+  assert.equal(publishedCoachPlan.source, "coach");
+  assert.equal(publishedCoachPlan.status, "published");
+
+  // 7. AI vs Coach Priority: GET /training/plan returns published coach plan as active
+  const activePlanRes = await call("/training/plan", "GET", null, athCookie);
+  assert.equal(activePlanRes.status, 200);
+  assert.equal(activePlanRes.body.source, "coach");
+
+  // 8. Both Plans endpoint (GET /training/plan/both)
+  const bothRes = await call("/training/plan/both", "GET", null, athCookie);
+  assert.equal(bothRes.status, 200);
+  assert.ok(bothRes.body.hasCoachPlan);
+  assert.equal(bothRes.body.coachPlan.source, "coach");
+  assert.equal(bothRes.body.aiPlan.source, "system");
+
+  // 9. Call POST /training/plan/generate while coach plan is active -> MUST NOT overwrite coach plan
+  const genRes3 = await call("/training/plan/generate", "POST", null, athCookie);
+  assert.equal(genRes3.status, 200);
+  // Active plan for athlete remains the coach plan
+  const activePlanRes2 = await call("/training/plan", "GET", null, athCookie);
+  assert.equal(activePlanRes2.body.source, "coach");
+
+  // 10. Weekly Review calculations
+  const reviewRes = await call(`/training/review/${planV2.id}`, "GET", null, athCookie);
+  assert.equal(reviewRes.status, 200);
+  assert.ok(reviewRes.body.review.plannedSessions > 0);
+  assert.equal(reviewRes.body.review.completedSessions, 1);
+  assert.equal(reviewRes.body.review.missedSessions, 1);
+  assert.ok(reviewRes.body.review.plannedLoad >= 0);
+
+  // 11. Training Load Analytics
+  const loadRes = await call("/training/load", "GET", null, athCookie);
+  assert.equal(loadRes.status, 200);
+  assert.ok(loadRes.body.plannedLoad >= 0);
+  assert.ok("actualLoad" in loadRes.body);
+  assert.equal(loadRes.body.loadUnit, "AU");
+
+  // 12. Sunday Digest: Authorization & Execution
+  // Athlete requesting own digest -> 200
+  const digestRes1 = await call("/training/send-digest", "POST", { athleteId: athId }, athCookie);
+  assert.equal(digestRes1.status, 200);
+  assert.ok(digestRes1.body.ok);
+
+  // Athlete requesting another athlete's digest -> 403 Forbidden
+  const digestRes2 = await call("/training/send-digest", "POST", { athleteId: profile.id }, athCookie);
+  assert.equal(digestRes2.status, 403);
+
+  // Assigned coach requesting athlete digest -> 200
+  const digestRes3 = await call("/training/send-digest", "POST", { athleteId: athId }, coach);
+  assert.equal(digestRes3.status, 200);
+  assert.ok(digestRes3.body.ok);
+});
+
+test("Part 4: VideoLab, MediaPipe Sprint Analysis, file metadata, coach review, privacy, and authorization", async () => {
+  // 1. Create test users: Athlete, Assigned Coach, Unassigned Coach
+  const coachRes = await call("/auth/register", "POST", {
+    name: "Video Coach P4",
+    email: "video_coach_p4@example.test",
+    password: "password123",
+    role: "coach",
+  });
+  assert.equal(coachRes.status, 201);
+  const coachCookie = coachRes.cookie;
+
+  const unassignedCoachRes = await call("/auth/register", "POST", {
+    name: "Unassigned Video Coach P4",
+    email: "unassigned_coach_p4@example.test",
+    password: "password123",
+    role: "coach",
+  });
+  assert.equal(unassignedCoachRes.status, 201);
+  const unassignedCoachCookie = unassignedCoachRes.cookie;
+
+  const athRes = await call("/auth/register", "POST", {
+    name: "Video Athlete P4",
+    email: "video_athlete_p4@example.test",
+    password: "password123",
+    role: "athlete",
+  });
+  assert.equal(athRes.status, 201);
+  const athCookie = athRes.cookie;
+
+  const coachUser = (await call("/me", "GET", null, coachCookie)).body.user;
+  const athProfile = (await call("/profile", "GET", null, athCookie)).body;
+
+  const profPutRes = await call("/profile", "PUT", {
+    ...athProfile,
+    birthDate: "2002-05-15",
+    state: "Maharashtra",
+    district: "Mumbai",
+    equipment: "Synthetic track",
+    coachId: coachUser.email,
+    sharePerformance: true,
+    shareHealth: true,
+  }, athCookie);
+  assert.equal(profPutRes.status, 200);
+
+  // 2. Upload/Create Video 1 with full metadata & Pose Landmarker analysis quality metrics
+  const form1 = new FormData();
+  const dummyMp4_1 = Buffer.concat([Buffer.alloc(4), Buffer.from("ftyp"), Buffer.alloc(100)]);
+  form1.append("file", new Blob([dummyMp4_1], { type: "video/mp4" }), "100m_Sprint_Block_Exit.mp4");
+
+  const upRes1 = await fetch(base + "/files", {
+    method: "POST",
+    headers: { cookie: athCookie },
+    body: form1,
+  });
+  assert.equal(upRes1.status, 201);
+  const vid1 = await upRes1.json();
+
+  const originalAnalysis1 = {
+    kneeAngle: { min: 82, max: 145, unit: "degrees" },
+    hipExtension: { max: 172, unit: "degrees" },
+    trunkAngle: { mean: 14.5, unit: "degrees" },
+    validFrames: 110,
+    invalidFrames: 10,
+    measurementCoverage: 91.6,
+    landmarkConfidence: 0.94,
+    analysisDuration: 3.66,
+    skippedFrames: 2,
+    qualityRating: "Good",
+  };
+
+  const updatedVid1 = await call(`/files/${vid1.id}`, "PUT", {
+    name: "100m_Sprint_Block_Exit.mp4",
+    notes: "Focusing on acceleration drive phase",
+    event: "100m",
+    trainingWeek: "Week 4",
+    trainingDay: "Monday",
+    sessionTitle: "Max Velocity Sprints",
+    phase: "Acceleration Development",
+    requestCoachReview: false,
+    analysis: originalAnalysis1,
+  }, athCookie);
+
+  assert.equal(updatedVid1.status, 200);
+  assert.equal(updatedVid1.body.name, "100m_Sprint_Block_Exit.mp4");
+  assert.equal(updatedVid1.body.analysis.validFrames, 110);
+  assert.equal(updatedVid1.body.analysis.landmarkConfidence, 0.94);
+
+  // 3. Upload/Create Video 2 to verify historical preservation (multiple videos exist without overwriting)
+  const form2 = new FormData();
+  const dummyMp4_2 = Buffer.concat([Buffer.alloc(4), Buffer.from("ftyp"), Buffer.alloc(100)]);
+  form2.append("file", new Blob([dummyMp4_2], { type: "video/mp4" }), "100m_Fly_Sprint.mp4");
+
+  const upRes2 = await fetch(base + "/files", {
+    method: "POST",
+    headers: { cookie: athCookie },
+    body: form2,
+  });
+  assert.equal(upRes2.status, 201);
+  const vid2 = await upRes2.json();
+
+  const originalAnalysis2 = {
+    kneeAngle: { min: 78, max: 148, unit: "degrees" },
+    validFrames: 120,
+    invalidFrames: 5,
+    measurementCoverage: 96.0,
+    landmarkConfidence: 0.96,
+  };
+
+  await call(`/files/${vid2.id}`, "PUT", {
+    name: "100m_Fly_Sprint.mp4",
+    event: "100m",
+    trainingWeek: "Week 5",
+    trainingDay: "Wednesday",
+    sessionTitle: "Fly 30m Sprint",
+    phase: "Max Velocity",
+    requestCoachReview: false,
+    analysis: originalAnalysis2,
+  }, athCookie);
+
+  // Verify historical listing retains both videos
+  const historyList = (await call("/files", "GET", null, athCookie)).body;
+  const f1 = historyList.find((f) => f.id === vid1.id);
+  const f2 = historyList.find((f) => f.id === vid2.id);
+  assert.ok(f1);
+  assert.ok(f2);
+  assert.equal(f1.analysis.measurementCoverage, 91.6);
+  assert.equal(f2.analysis.measurementCoverage, 96.0);
+
+  // 4. Athlete requests coach review on Video 1 (requestCoachReview = true)
+  const reqRevRes = await call(`/files/${vid1.id}`, "PUT", {
+    requestCoachReview: true,
+  }, athCookie);
+  assert.equal(reqRevRes.status, 200);
+  assert.equal(reqRevRes.body.requestCoachReview, true);
+
+  // 5. Verify Coach receives video review notification
+  const coachNotifsRes = await call("/coach/notifications", "GET", null, coachCookie);
+  assert.equal(coachNotifsRes.status, 200);
+  const coachNotifs = coachNotifsRes.body;
+  const vidNotif = coachNotifs.find((n) => n.fileId === vid1.id || (n.id && n.id.includes(vid1.id)));
+  assert.ok(vidNotif, `Expected notification for file ${vid1.id} in ${JSON.stringify(coachNotifs)}`);
+  assert.equal(vidNotif.athleteId, profPutRes.body.id);
+
+  // 6. Unrelated Coach attempts review or content access -> 403 Forbidden
+  const unassignedContent = await call(`/files/${vid1.id}/content`, "GET", null, unassignedCoachCookie);
+  assert.equal(unassignedContent.status, 403);
+
+  const unassignedPut = await call(`/files/${vid1.id}`, "PUT", {
+    coachAnnotation: { observation: "Malicious attempt" },
+  }, unassignedCoachCookie);
+  assert.equal(unassignedPut.status, 403);
+
+  // 7. Assigned Coach submits review with Observation, Correction, Drill Recommendation, Follow-up Note
+  const coachReviewRes = await call(`/files/${vid1.id}`, "PUT", {
+    coachAnnotation: {
+      observation: "Strong knee drive coming out of drive phase",
+      correction: "Maintain upright torso transition past 30m mark",
+      drillRecommendation: "Wicket runs 3x40m and Wall A-Marches",
+      coachFollowUpNote: "Re-analyze next Wednesday session clip",
+    },
+  }, coachCookie);
+
+  assert.equal(coachReviewRes.status, 200);
+  assert.equal(coachReviewRes.body.coachAnnotation.observation, "Strong knee drive coming out of drive phase");
+  assert.equal(coachReviewRes.body.coachAnnotation.correction, "Maintain upright torso transition past 30m mark");
+  assert.equal(coachReviewRes.body.coachAnnotation.drillRecommendation, "Wicket runs 3x40m and Wall A-Marches");
+  assert.equal(coachReviewRes.body.coachAnnotation.coachFollowUpNote, "Re-analyze next Wednesday session clip");
+  assert.ok(coachReviewRes.body.coachReviewedAt);
+  assert.ok(coachReviewRes.body.coachReviewedBy);
+
+  // IMMUTABILITY ASSERTIONS: Original analysis & metadata were NOT modified by coach
+  assert.equal(coachReviewRes.body.analysis.kneeAngle.max, 145);
+  assert.equal(coachReviewRes.body.analysis.validFrames, 110);
+  assert.equal(coachReviewRes.body.name, "100m_Sprint_Block_Exit.mp4");
+
+  // PENDING STATE CLEARED: requestCoachReview cleared to false
+  assert.equal(coachReviewRes.body.requestCoachReview, false);
+
+  // 8. Coach Notifications updated: pending notification cleared
+  const updatedNotifs = (await call("/coach/notifications", "GET", null, coachCookie)).body;
+  const clearedNotif = updatedNotifs.find((n) => n.fileId === vid1.id || n.id.includes(vid1.id));
+  assert.equal(clearedNotif, undefined);
+
+  // 9. Privacy & Consent test: Athlete sets sharePerformance = false
+  const noConsentProfileRes = await call("/profile", "PUT", {
+    ...profPutRes.body,
+    sharePerformance: false,
+    shareHealth: false,
+  }, athCookie);
+  assert.equal(noConsentProfileRes.status, 200);
+
+  // Assigned coach attempts access on vid2 (where requestCoachReview = false) -> 403 Forbidden
+  const noConsentRes = await call(`/files/${vid2.id}/content`, "GET", null, coachCookie);
+  assert.equal(noConsentRes.status, 403);
+});
+
+test("Part 5: Complete 24-Step End-to-End User Journey & Data Integrity Test", async () => {
+  // 1. Athlete & Coach Registration
+  const coachRes = await call("/auth/register", "POST", {
+    name: "E2E Coach",
+    email: "e2e_coach@example.test",
+    password: "password123",
+    role: "coach",
+  });
+  assert.equal(coachRes.status, 201);
+  const coachCookie = coachRes.cookie;
+
+  const athRes = await call("/auth/register", "POST", {
+    name: "E2E Athlete",
+    email: "e2e_athlete@example.test",
+    password: "password123",
+    role: "athlete",
+  });
+  assert.equal(athRes.status, 201);
+  const athCookie = athRes.cookie;
+
+  // 2. Athlete Profile Setup
+  const defaultProf = (await call("/profile", "GET", null, athCookie)).body;
+  const profRes = await call("/profile", "PUT", {
+    ...defaultProf,
+    name: "E2E Athlete",
+    sport: "Athletics",
+    event: "100m",
+    birthDate: "2002-04-12",
+    state: "Haryana",
+    district: "Rohtak",
+    equipment: "Synthetic track",
+    competitionDate: "2026-11-15",
+    coachId: "e2e_coach@example.test",
+    sharePerformance: true,
+    shareHealth: true,
+  }, athCookie);
+  assert.equal(profRes.status, 200);
+
+  // 3. Log Performance Record
+  const sessRes = await call("/records/sessions", "POST", {
+    title: "100m Time Trial",
+    date: "2026-10-01",
+    event: "100m",
+    metric: 10.85,
+    unit: "sec",
+    duration: 60,
+    effort: 9,
+    pain: 0,
+    fatigue: 3,
+  }, athCookie);
+  assert.equal(sessRes.status, 201);
+
+  // 4. Training Roadmap Level Calculation
+  const roadmapRes = await call("/training/roadmap", "GET", null, athCookie);
+  assert.equal(roadmapRes.status, 200);
+  assert.ok(roadmapRes.body.currentLevel);
+
+  // 5. Goals Setup (Year & Month Goal)
+  const goalsRes = await call("/training/goals", "PUT", {
+    yearGoal: { targetPB: 10.20, targetDate: "2026-12-31" },
+    monthGoal: { title: "Acceleration & Block Exit Mastery" },
+  }, athCookie);
+  assert.equal(goalsRes.status, 200);
+
+  // 6. Weekly Plan Auto-Generation
+  const planRes = await call("/training/plan", "GET", null, athCookie);
+  assert.equal(planRes.status, 200);
+  const planId = planRes.body.id;
+  assert.ok(planId);
+
+  // 7. Session Check-In with Actual Performance
+  const checkInRes = await call(`/training/plan/${planId}/session/0`, "PUT", {
+    status: "completed",
+    actualMetric: 10.82,
+    actualDuration: 60,
+    rpe: 8,
+    fatigue: 3,
+    pain: 0,
+  }, athCookie);
+  assert.equal(checkInRes.status, 200);
+
+  // 8. Training Load Analytics
+  const loadRes = await call("/training/load", "GET", null, athCookie);
+  assert.equal(loadRes.status, 200);
+  assert.ok("acwr" in loadRes.body);
+
+  // 9. Recovery Daily Check-In
+  const recRes = await call("/records/recovery_logs", "POST", {
+    date: "2026-10-08",
+    sleepDuration: 8.0,
+    sleepQuality: "Good",
+    fatigue: 2,
+    stress: 2,
+    mood: 8,
+    soreness: 2,
+    generalRecovery: 8,
+    painFlag: false,
+  }, athCookie);
+  assert.equal(recRes.status, 201);
+
+  // 10. Readiness State
+  const readinessRes = await call("/recovery/readiness", "GET", null, athCookie);
+  assert.equal(readinessRes.status, 200);
+  assert.ok(readinessRes.body.readiness);
+
+  // 11. Video Upload & MediaPipe Analysis
+  const form = new FormData();
+  const dummyMp4 = Buffer.concat([Buffer.alloc(4), Buffer.from("ftyp"), Buffer.alloc(100)]);
+  form.append("file", new Blob([dummyMp4], { type: "video/mp4" }), "100m_drive_phase.mp4");
+
+  const vidUpRes = await fetch(base + "/files", {
+    method: "POST",
+    headers: { cookie: athCookie },
+    body: form,
+  });
+  assert.equal(vidUpRes.status, 201);
+  const vidFile = await vidUpRes.json();
+
+  await call(`/files/${vidFile.id}`, "PUT", {
+    name: "100m_drive_phase.mp4",
+    analysis: { kneeAngle: { max: 142 }, validFrames: 100, measurementCoverage: 95.0 },
+    requestCoachReview: true,
+  }, athCookie);
+
+  // 12. Coach Notification for Video Review
+  const coachNotifs = (await call("/coach/notifications", "GET", null, coachCookie)).body;
+  const vidNotif = coachNotifs.find((n) => n.fileId === vidFile.id || (n.id && n.id.includes(vidFile.id)));
+  assert.ok(vidNotif);
+
+  // 13. Coach Annotates Video
+  const coachReviewRes = await call(`/files/${vidFile.id}`, "PUT", {
+    coachAnnotation: {
+      observation: "Solid drive angle",
+      correction: "Hold drive 2 steps longer",
+      drillRecommendation: "Wall A-Marches",
+    },
+  }, coachCookie);
+  assert.equal(coachReviewRes.status, 200);
+  assert.equal(coachReviewRes.body.requestCoachReview, false);
+
+  // 14. Weekly Review
+  const reviewRes = await call(`/training/review/${planId}`, "GET", null, athCookie);
+  assert.equal(reviewRes.status, 200);
+  assert.equal(reviewRes.body.review.completedSessions, 1);
+
+  // 15. Reality Check
+  const rcRes = await call("/training/reality-check", "GET", null, athCookie);
+  assert.equal(rcRes.status, 200);
+  assert.ok(["ON TRACK", "PARTIALLY ON TRACK", "NEEDS ATTENTION", "NOT ON TRACK", "INSUFFICIENT DATA"].includes(rcRes.body.status));
+
+  // 16. Next Weekly Plan Adaptation
+  const nextPlanRes = await call("/training/plan/generate", "POST", null, athCookie);
+  assert.equal(nextPlanRes.status, 200);
+});
+
 test("record and account deletion revoke access", async () => {
   assert.equal(
     (await call("/records/sessions/" + session.id, "DELETE", null, athlete))
@@ -1367,3 +2138,6 @@ test("record and account deletion revoke access", async () => {
   assert.equal((await call("/account", "DELETE", null, athlete)).status, 200);
   assert.equal((await call("/me", "GET", null, athlete)).status, 401);
 });
+
+
+

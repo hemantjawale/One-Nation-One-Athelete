@@ -282,12 +282,20 @@ export default function VideoLab() {
                       </span>
                     </div>
 
+                    {/* Low Coverage / Quality Warning Banner */}
+                    {(currentAnalysis.measurementCoverage < 50 || currentAnalysis.confidence === "Low") && (
+                      <div style={{ background: "#ea580c20", border: "1px solid #ea580c80", padding: "10px 14px", borderRadius: "6px", marginBottom: "14px", color: "#fdba74", fontSize: "13px", display: "flex", alignItems: "center", gap: "8px" }}>
+                        <AlertTriangle size={16} color="#f97316" />
+                        <strong>Analysis confidence/coverage is limited.</strong> Retake recording with better lighting and a full-body side view.
+                      </div>
+                    )}
+
                     {/* Joint Measurements Grid */}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px", marginBottom: "14px" }}>
                       <div style={{ background: "#0f172a", padding: "10px", borderRadius: "6px", border: "1px solid #1e293b" }}>
                         <span style={{ fontSize: "11px", color: "#94a3b8" }}>LEFT KNEE MEAN (RANGE)</span>
                         <strong style={{ display: "block", fontSize: "16px", color: "#f8fafc", marginTop: "2px" }}>
-                          {currentAnalysis.joints?.leftKnee?.mean ?? currentAnalysis.kneeAngle}°
+                          {currentAnalysis.joints?.leftKnee?.mean ?? currentAnalysis.kneeAngle ?? "--"}°
                         </strong>
                         <small style={{ color: "#94a3b8", fontSize: "11px" }}>
                           Range: {currentAnalysis.joints?.leftKnee?.range ?? "--"}° ({currentAnalysis.joints?.leftKnee?.min ?? "--"}° to {currentAnalysis.joints?.leftKnee?.max ?? "--"}°)
@@ -325,7 +333,7 @@ export default function VideoLab() {
                     {currentAnalysis.warnings?.length > 0 && (
                       <div style={{ background: "#ef444415", border: "1px solid #ef444450", padding: "10px", borderRadius: "6px", marginBottom: "10px" }}>
                         <strong style={{ fontSize: "12px", color: "#ef4444", display: "flex", alignItems: "center", gap: "6px" }}>
-                          <AlertTriangle size={14} /> Recording / Measurement Warnings:
+                          <AlertTriangle size={14} /> Technique Observations & Warnings:
                         </strong>
                         <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: "12px", color: "#f8fafc" }}>
                           {currentAnalysis.warnings.map((w, i) => (
@@ -369,7 +377,7 @@ export default function VideoLab() {
               <h2>
                 A new perspective
                 <br />
-                on your sprint kinematics.
+                on your movement geometry.
               </h2>
               <p>
                 Upload a side-view MP4 or WebM recording.
@@ -402,7 +410,8 @@ export default function VideoLab() {
                   </button>
                   <small style={{ display: "block", color: "#94a3b8", fontSize: "11px" }}>
                     {(f.size / 1024 / 1024).toFixed(1)} MB • {f.analysis ? `Analysed (${f.analysis.measurementCoverage || 90}% coverage)` : "Uploaded"}
-                    {f.requestCoachReview && <span style={{ color: "#eab308", marginLeft: "6px" }}>• Review Requested</span>}
+                    {f.requestCoachReview && !f.coachReviewedAt && <span style={{ color: "#eab308", marginLeft: "6px" }}>• Review Requested</span>}
+                    {f.coachReviewedAt && <span style={{ color: "#10b981", marginLeft: "6px" }}>• Coach Reviewed</span>}
                   </small>
                 </div>
                 <button
@@ -437,10 +446,10 @@ export default function VideoLab() {
 
       {/* CAMERA SETUP GUIDANCE MODAL */}
       {showSetupGuide && (
-        <Modal title="Recommended Recording Setup for Computer Vision" onClose={() => setShowSetupGuide(false)}>
+        <Modal title="Recommended Recording Setup for Movement Analysis" onClose={() => setShowSetupGuide(false)}>
           <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#cbd5e1" }}>
             <p>
-              To ensure accurate 2D pose landmark detection and reliable joint angle measurements, follow these recording recommendations:
+              To ensure optimal 2D pose landmark detection and reliable joint angle measurements, follow these recording recommendations:
             </p>
             <ul style={{ paddingLeft: "20px", margin: "10px 0" }}>
               <li><strong>Full Body Visible:</strong> Ensure head, shoulders, hips, knees, and feet remain inside the camera frame throughout the movement.</li>
@@ -449,6 +458,9 @@ export default function VideoLab() {
               <li><strong>Sufficient Lighting:</strong> Record in well-lit conditions with high contrast between the athlete and background.</li>
               <li><strong>High Frame Rate:</strong> Record at 60fps or higher if available to reduce high-speed motion blur.</li>
             </ul>
+            <div style={{ background: "#0f172a", padding: "10px", borderRadius: "6px", border: "1px solid #1e293b", marginTop: "12px", fontSize: "12px", color: "#94a3b8" }}>
+              ℹ️ <strong>Notice:</strong> Camera setup guidance improves landmark detection quality, but does not guarantee calibrated or 100% accurate measurements.
+            </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
               <button className="button orange" onClick={() => setShowSetupGuide(false)}>
                 Got it, let&apos;s analyze!
@@ -496,35 +508,37 @@ export default function VideoLab() {
                   <tbody>
                     <tr style={{ borderBottom: "1px solid #1e293b" }}>
                       <td style={{ padding: "8px", fontWeight: 600 }}>Left Knee Mean</td>
-                      <td style={{ padding: "8px" }}>{compareAnalysis.joints?.leftKnee?.mean ?? compareAnalysis.kneeAngle}°</td>
-                      <td style={{ padding: "8px" }}>{currentAnalysis.joints?.leftKnee?.mean ?? currentAnalysis.kneeAngle}°</td>
+                      <td style={{ padding: "8px" }}>{compareAnalysis.joints?.leftKnee?.mean !== undefined ? `${compareAnalysis.joints.leftKnee.mean}°` : "Insufficient Data"}</td>
+                      <td style={{ padding: "8px" }}>{currentAnalysis.joints?.leftKnee?.mean !== undefined ? `${currentAnalysis.joints.leftKnee.mean}°` : "Insufficient Data"}</td>
                       <td style={{ padding: "8px", fontWeight: 700, color: "#f97316" }}>
-                        {((currentAnalysis.joints?.leftKnee?.mean ?? currentAnalysis.kneeAngle) - (compareAnalysis.joints?.leftKnee?.mean ?? compareAnalysis.kneeAngle)).toFixed(1)}°
+                        {currentAnalysis.joints?.leftKnee?.mean !== undefined && compareAnalysis.joints?.leftKnee?.mean !== undefined
+                          ? `${(currentAnalysis.joints.leftKnee.mean - compareAnalysis.joints.leftKnee.mean).toFixed(1)}°`
+                          : "Insufficient Data"}
                       </td>
                     </tr>
 
                     <tr style={{ borderBottom: "1px solid #1e293b" }}>
                       <td style={{ padding: "8px", fontWeight: 600 }}>Right Knee Mean</td>
-                      <td style={{ padding: "8px" }}>{compareAnalysis.joints?.rightKnee?.mean ?? "--"}°</td>
-                      <td style={{ padding: "8px" }}>{currentAnalysis.joints?.rightKnee?.mean ?? "--"}°</td>
+                      <td style={{ padding: "8px" }}>{compareAnalysis.joints?.rightKnee?.mean !== undefined ? `${compareAnalysis.joints.rightKnee.mean}°` : "Insufficient Data"}</td>
+                      <td style={{ padding: "8px" }}>{currentAnalysis.joints?.rightKnee?.mean !== undefined ? `${currentAnalysis.joints.rightKnee.mean}°` : "Insufficient Data"}</td>
                       <td style={{ padding: "8px", fontWeight: 700 }}>
-                        {compareAnalysis.joints?.rightKnee?.mean && currentAnalysis.joints?.rightKnee?.mean
+                        {compareAnalysis.joints?.rightKnee?.mean !== undefined && currentAnalysis.joints?.rightKnee?.mean !== undefined
                           ? `${(currentAnalysis.joints.rightKnee.mean - compareAnalysis.joints.rightKnee.mean).toFixed(1)}°`
-                          : "--"}
+                          : "Insufficient Data"}
                       </td>
                     </tr>
 
                     <tr style={{ borderBottom: "1px solid #1e293b" }}>
                       <td style={{ padding: "8px", fontWeight: 600 }}>Asymmetry Delta</td>
-                      <td style={{ padding: "8px" }}>{compareAnalysis.symmetry?.kneeMeanDiff ?? "--"}°</td>
-                      <td style={{ padding: "8px" }}>{currentAnalysis.symmetry?.kneeMeanDiff ?? "--"}°</td>
+                      <td style={{ padding: "8px" }}>{compareAnalysis.symmetry?.kneeMeanDiff !== undefined ? `${compareAnalysis.symmetry.kneeMeanDiff}°` : "Insufficient Data"}</td>
+                      <td style={{ padding: "8px" }}>{currentAnalysis.symmetry?.kneeMeanDiff !== undefined ? `${currentAnalysis.symmetry.kneeMeanDiff}°` : "Insufficient Data"}</td>
                       <td style={{ padding: "8px" }}>--</td>
                     </tr>
 
                     <tr style={{ borderBottom: "1px solid #1e293b" }}>
                       <td style={{ padding: "8px", fontWeight: 600 }}>Pose Coverage</td>
-                      <td style={{ padding: "8px" }}>{compareAnalysis.measurementCoverage ?? 90}%</td>
-                      <td style={{ padding: "8px" }}>{currentAnalysis.measurementCoverage ?? 90}%</td>
+                      <td style={{ padding: "8px" }}>{compareAnalysis.measurementCoverage !== undefined ? `${compareAnalysis.measurementCoverage}%` : "Insufficient Data"}</td>
+                      <td style={{ padding: "8px" }}>{currentAnalysis.measurementCoverage !== undefined ? `${currentAnalysis.measurementCoverage}%` : "Insufficient Data"}</td>
                       <td style={{ padding: "8px" }}>--</td>
                     </tr>
                   </tbody>

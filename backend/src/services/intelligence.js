@@ -133,7 +133,8 @@ export function insights(p, records) {
 }
 
 /**
- * Calculates athlete Training Readiness & personal baseline trends
+ * Calculates athlete Training Readiness & personal baseline trends.
+ * Authoritative single source of truth for athlete readiness indicators.
  */
 export function calculateRecoveryReadiness(records = [], recoveryLogs = []) {
   const sortedLogs = [...recoveryLogs].sort((a, b) =>
@@ -143,92 +144,195 @@ export function calculateRecoveryReadiness(records = [], recoveryLogs = []) {
   const todayLog = sortedLogs[0] || null;
   const logCount = sortedLogs.length;
 
-  const baselineLogs = sortedLogs.slice(1, 15);
-  const hasBaseline = baselineLogs.length >= 3;
+  // Previous logs used to construct the personal baseline (excluding today's check-in)
+  const previousLogs = sortedLogs.slice(1, 15);
+  const baselineCount = previousLogs.length;
+  const hasBaseline = baselineCount >= 3;
 
-  const baseline = {
-    sleepDuration: hasBaseline
-      ? Number((baselineLogs.reduce((acc, l) => acc + (l.sleepDuration || 7.5), 0) / baselineLogs.length).toFixed(1))
-      : 8.0,
-    fatigue: hasBaseline
-      ? Number((baselineLogs.reduce((acc, l) => acc + (l.fatigue || 3), 0) / baselineLogs.length).toFixed(1))
-      : 3.0,
-    soreness: hasBaseline
-      ? Number((baselineLogs.reduce((acc, l) => acc + (l.soreness || 3), 0) / baselineLogs.length).toFixed(1))
-      : 3.0,
-    stress: hasBaseline
-      ? Number((baselineLogs.reduce((acc, l) => acc + (l.stress || 3), 0) / baselineLogs.length).toFixed(1))
-      : 3.0,
-    generalRecovery: hasBaseline
-      ? Number((baselineLogs.reduce((acc, l) => acc + (l.generalRecovery || 8), 0) / baselineLogs.length).toFixed(1))
-      : 8.0,
-  };
+  // Personal baseline statistics (calculated if >= 3 previous logs exist)
+  const baseline = hasBaseline
+    ? {
+        sleepDuration: Number(
+          (previousLogs.reduce((acc, l) => acc + (l.sleepDuration ?? 8.0), 0) / baselineCount).toFixed(1),
+        ),
+        fatigue: Number(
+          (previousLogs.reduce((acc, l) => acc + (l.fatigue ?? 3.0), 0) / baselineCount).toFixed(1),
+        ),
+        soreness: Number(
+          (previousLogs.reduce((acc, l) => acc + (l.soreness ?? 3.0), 0) / baselineCount).toFixed(1),
+        ),
+        stress: Number(
+          (previousLogs.reduce((acc, l) => acc + (l.stress ?? 3.0), 0) / baselineCount).toFixed(1),
+        ),
+        generalRecovery: Number(
+          (previousLogs.reduce((acc, l) => acc + (l.generalRecovery ?? 8.0), 0) / baselineCount).toFixed(1),
+        ),
+      }
+    : null;
 
-  let readiness = "LIMITED DATA";
-  let statusColor = "gray";
-  let reason = "Insufficient personal baseline. Log at least 3 daily recovery check-ins to establish personal tracking.";
-  let recommendation = "Complete daily recovery check-ins to monitor fatigue, sleep, and readiness.";
+  // Active injury detection from records
+  const activeInjuryRecord = records.find(
+    (r) => (r.kind === "injuries" || (r.stage && r.cleared !== undefined)) && r.stage && r.stage !== "Return to play",
+  );
+  const activeInjury = Boolean(activeInjuryRecord);
 
-  const activeInjury = records.some((r) => r.kind === "injuries" && r.stage !== "Return to play");
+  // Pain flag & level from today's check-in
+  const painFlag = Boolean(todayLog?.painFlag);
+  const painLevel = Number(todayLog?.painLevel ?? 0);
+  const painArea = todayLog?.painArea || "unspecified area";
 
-  if (!todayLog && logCount < 3) {
-    readiness = "LIMITED DATA";
-    statusColor = "gray";
-    reason = "Insufficient personal baseline. At least 3 daily recovery check-ins are required.";
-    recommendation = "Log today's sleep, fatigue, and soreness to calculate training readiness.";
-  } else {
-    const sleep = todayLog?.sleepDuration ?? 7.5;
-    const fatigue = todayLog?.fatigue ?? 3;
-    const soreness = todayLog?.soreness ?? 3;
-    const stress = todayLog?.stress ?? 3;
-    const pain = todayLog?.painFlag || (todayLog?.painLevel || 0) >= 5;
-
-    if (pain || activeInjury) {
-      readiness = "COACH REVIEW";
-      statusColor = "red";
-      reason = pain
-        ? `Pain flag reported (${todayLog?.painArea || "general area"}, level ${todayLog?.painLevel || 6}/10).`
-        : "Active rehabilitation stage in progress.";
-      recommendation = "Pause high-intensity sprint progressions and review today's training plan with your coach.";
-    } else if (fatigue >= baseline.fatigue + 2.5 || sleep <= baseline.sleepDuration - 2.0 || soreness >= 7 || stress >= 8) {
-      readiness = "RECOVERY PRIORITY";
-      statusColor = "orange";
-      reason = `Fatigue (${fatigue}/10) or soreness (${soreness}/10) significantly elevated above your personal baseline (Fatigue avg: ${baseline.fatigue}, Sleep avg: ${baseline.sleepDuration}h).`;
-      recommendation = "Recovery indicators below your recent baseline. Prioritize parasympathetic recovery and lighter sessions.";
-    } else if (fatigue >= baseline.fatigue + 1.2 || sleep <= baseline.sleepDuration - 1.0 || soreness >= 5) {
-      readiness = "READY WITH CAUTION";
-      statusColor = "yellow";
-      reason = `Minor fatigue or sleep deviation above personal baseline (Sleep: ${sleep}h vs ${baseline.sleepDuration}h avg).`;
-      recommendation = "Proceed with planned training, but focus on warm-up quality and hydration.";
-    } else {
-      readiness = "READY";
-      statusColor = "green";
-      reason = "All recovery, sleep, and fatigue indicators are within optimal personal baseline ranges.";
-      recommendation = "Athlete is cleared for planned high-intensity sprint workloads.";
-    }
-  }
-
+  // Trends calculation
   const last7 = sortedLogs.slice(0, 7);
   const last30 = sortedLogs.slice(0, 30);
 
   const trends = {
-    sleep7dAvg: last7.length ? Number((last7.reduce((a, l) => a + (l.sleepDuration || 0), 0) / last7.length).toFixed(1)) : null,
-    fatigue7dAvg: last7.length ? Number((last7.reduce((a, l) => a + (l.fatigue || 0), 0) / last7.length).toFixed(1)) : null,
-    soreness7dAvg: last7.length ? Number((last7.reduce((a, l) => a + (l.soreness || 0), 0) / last7.length).toFixed(1)) : null,
-    painCount7d: last7.filter((l) => l.painFlag || l.painLevel > 0).length,
-    sleep30dAvg: last30.length ? Number((last30.reduce((a, l) => a + (l.sleepDuration || 0), 0) / last30.length).toFixed(1)) : null,
-    fatigue30dAvg: last30.length ? Number((last30.reduce((a, l) => a + (l.fatigue || 0), 0) / last30.length).toFixed(1)) : null,
+    status: sortedLogs.length > 0 ? "Available" : "Insufficient data",
+    sampleSize7d: last7.length,
+    sampleSize30d: last30.length,
+    sleep7dAvg: last7.length
+      ? Number((last7.reduce((a, l) => a + (l.sleepDuration ?? 0), 0) / last7.length).toFixed(1))
+      : null,
+    fatigue7dAvg: last7.length
+      ? Number((last7.reduce((a, l) => a + (l.fatigue ?? 0), 0) / last7.length).toFixed(1))
+      : null,
+    soreness7dAvg: last7.length
+      ? Number((last7.reduce((a, l) => a + (l.soreness ?? 0), 0) / last7.length).toFixed(1))
+      : null,
+    painCount7d: last7.filter((l) => l.painFlag || (l.painLevel && l.painLevel > 0)).length,
+    sleep30dAvg: last30.length
+      ? Number((last30.reduce((a, l) => a + (l.sleepDuration ?? 0), 0) / last30.length).toFixed(1))
+      : null,
+    fatigue30dAvg: last30.length
+      ? Number((last30.reduce((a, l) => a + (l.fatigue ?? 0), 0) / last30.length).toFixed(1))
+      : null,
   };
+
+  // Recent Workload (ACWR) from training sessions in records
+  const sessions = records.filter((r) => r.kind === "sessions" || r.metric !== undefined);
+  const now = Date.now();
+  const last7dSessions = sessions.filter(
+    (s) => Date.parse(s.date || s.trainingDate || 0) >= now - 7 * 86400000,
+  );
+  const last28dSessions = sessions.filter(
+    (s) => Date.parse(s.date || s.trainingDate || 0) >= now - 28 * 86400000,
+  );
+
+  const acute7dLoad = last7dSessions.reduce(
+    (acc, s) => acc + (s.duration || 60) * (s.effort || 7),
+    0,
+  );
+  const chronic28dLoad = last28dSessions.length
+    ? last28dSessions.reduce((acc, s) => acc + (s.duration || 60) * (s.effort || 7), 0) / 4
+    : acute7dLoad || 1;
+  const acwr = Number((acute7dLoad / Math.max(1, chronic28dLoad)).toFixed(2));
+
+  let readiness = "LIMITED DATA";
+  let statusColor = "gray";
+  let reason = "";
+  let recommendation = "";
+  let primaryFocus = "Baseline Check-ins";
+  let score = 50;
+
+  // 1. ACTIVE INJURY OR PAIN FLAG -> COACH REVIEW (Red)
+  if (activeInjury || painFlag || painLevel >= 5) {
+    readiness = "COACH REVIEW";
+    statusColor = "red";
+    score = activeInjury ? 30 : Math.max(20, 60 - painLevel * 6);
+    primaryFocus = activeInjury ? "Injury Rehabilitation" : "Pain Management & Review";
+    reason = activeInjury
+      ? `Active rehabilitation stage in progress (${activeInjuryRecord.title || "Active Injury"}). Review readiness with your coach or clinician.`
+      : `Pain reported (${painArea}, level ${painLevel}/10). Consult coach/trainer before high-load training.`;
+    recommendation =
+      "Review today's session with your coach or trainer before undertaking high-load activity.";
+  }
+  // 2. INSUFFICIENT BASELINE -> LIMITED DATA (Gray)
+  else if (!hasBaseline) {
+    readiness = "LIMITED DATA";
+    statusColor = "gray";
+    score = 60;
+    primaryFocus = "Establish Baseline";
+    reason = `Insufficient personal baseline data. At least 3 previous daily check-ins are required to establish your personal tracking baseline (currently recorded: ${baselineCount} previous check-in${baselineCount === 1 ? "" : "s"}).`;
+    recommendation =
+      "Complete daily recovery check-ins to build a reliable personal baseline for fatigue, sleep, and training readiness monitoring.";
+  }
+  // 3. SIGNIFICANT DEVIATIONS -> RECOVERY PRIORITY (Orange)
+  else {
+    const sleep = todayLog?.sleepDuration ?? baseline.sleepDuration;
+    const fatigue = todayLog?.fatigue ?? baseline.fatigue;
+    const soreness = todayLog?.soreness ?? baseline.soreness;
+    const stress = todayLog?.stress ?? baseline.stress;
+
+    if (
+      fatigue >= baseline.fatigue + 2.5 ||
+      fatigue >= 8 ||
+      sleep <= baseline.sleepDuration - 2.0 ||
+      sleep <= 5.0 ||
+      soreness >= 7 ||
+      stress >= 8 ||
+      acwr > 1.50
+    ) {
+      readiness = "RECOVERY PRIORITY";
+      statusColor = "orange";
+      score = 45;
+      primaryFocus = "Rest & Regeneration";
+      reason = `Fatigue (${fatigue}/10), soreness (${soreness}/10), stress (${stress}/10), or sleep (${sleep}h vs ${baseline.sleepDuration}h avg) significantly deviates from your recent personal baseline.`;
+      recommendation =
+        "Prioritize parasympathetic recovery, hydration, and light active recovery instead of high-intensity training.";
+    }
+    // 4. MODERATE DEVIATIONS -> READY WITH CAUTION (Yellow)
+    else if (
+      fatigue >= baseline.fatigue + 1.2 ||
+      fatigue >= 6 ||
+      sleep <= baseline.sleepDuration - 1.0 ||
+      soreness >= 5 ||
+      stress >= 6
+    ) {
+      readiness = "READY WITH CAUTION";
+      statusColor = "yellow";
+      score = 75;
+      primaryFocus = "Warm-up Quality & Hydration";
+      reason = `Minor fatigue (${fatigue}/10), sleep (${sleep}h vs ${baseline.sleepDuration}h avg), or soreness (${soreness}/10) deviation relative to your recent personal baseline.`;
+      recommendation =
+        "Proceed with planned training, focusing on warm-up quality, hydration, and movement mechanics.";
+    }
+    // 5. OPTIMAL RANGES -> READY (Green)
+    else {
+      readiness = "READY";
+      statusColor = "green";
+      score = 92;
+      primaryFocus = "Planned Sprint Session";
+      reason = "Recovery, sleep, and fatigue indicators are within your recent personal baseline ranges.";
+      recommendation =
+        "Recovery indicators are within your recent personal baseline. Follow the planned session if appropriate and consult coach/professional guidance.";
+    }
+  }
 
   return {
     readiness,
+    status: readiness,
     statusColor,
     reason,
+    reasons: reason ? [reason] : [],
     recommendation,
     todayLog,
-    baseline,
+    latestLog: todayLog,
+    baseline: baseline
+      ? {
+          ...baseline,
+          avgSleep: baseline.sleepDuration,
+          avgFatigue: baseline.fatigue,
+          avgSoreness: baseline.soreness,
+          avgStress: baseline.stress,
+          avgGeneralRecovery: baseline.generalRecovery,
+        }
+      : null,
     hasBaseline,
+    baselineCount,
     logCount,
+    hasPainFlag: Boolean(painFlag || painLevel >= 5 || activeInjury),
+    acwr,
+    score,
+    primaryFocus,
     trends,
     updatedAt: new Date().toISOString(),
   };
@@ -324,21 +428,56 @@ export function match(p, o) {
 
 /**
  * Generates unified cross-module athlete monitoring context
+ * Respects user roles and server-side consent rules (shareHealth, sharePerformance)
  */
-export async function getConsolidatedAthleteContext(db, athleteId) {
-  const profileRaw = (await db.get("profiles", athleteId)) || {};
-  const profile = normalizeProfile(profileRaw);
+export async function getConsolidatedAthleteContext(db, athleteId, requestingUser = null) {
+  const profileRaw = await db.get("profiles", athleteId);
+  if (!profileRaw && requestingUser && requestingUser.id !== athleteId) {
+    return { error: "Athlete profile not found", status: 404 };
+  }
+  const profile = normalizeProfile(profileRaw || {});
 
-  const sessions = (await db.list("sessions", { ownerId: athleteId })) || [];
+  // Server-side Role & Access Authorization
+  if (requestingUser) {
+    const isOwner = requestingUser.id === athleteId;
+    const isAdmin = requestingUser.role === "admin";
+    const isAssignedCoach =
+      requestingUser.role === "coach" &&
+      Boolean(
+        profile.coachId &&
+          (profile.coachId === requestingUser.id ||
+            profile.coachId.toLowerCase() === requestingUser.email?.toLowerCase()),
+      );
+    const isAssignedMedical =
+      requestingUser.role === "medical" &&
+      Boolean(
+        profile.coachId &&
+          (profile.coachId === requestingUser.id ||
+            profile.coachId.toLowerCase() === requestingUser.email?.toLowerCase()),
+      );
+
+    if (!isOwner && !isAdmin && !isAssignedCoach && !isAssignedMedical) {
+      return {
+        error: "Access denied. You are not authorized to view this athlete context.",
+        status: 403,
+      };
+    }
+  }
+
+  const isSelfOrAdmin = !requestingUser || requestingUser.id === athleteId || requestingUser.role === "admin";
+  const shareHealth = Boolean(profile.shareHealth) || isSelfOrAdmin;
+  const sharePerformance = Boolean(profile.sharePerformance) || isSelfOrAdmin;
+
+  const sessions = sharePerformance ? ((await db.list("sessions", { ownerId: athleteId })) || []) : [];
   sessions.sort((a, b) =>
     (b.date || b.trainingDate || "").localeCompare(a.date || a.trainingDate || ""),
   );
 
-  const recoveryLogs = (await db.list("recovery_logs", { ownerId: athleteId })) || [];
-  const injuries = (await db.list("injuries", { ownerId: athleteId })) || [];
+  const recoveryLogs = shareHealth ? ((await db.list("recovery_logs", { ownerId: athleteId })) || []) : [];
+  const injuries = shareHealth ? ((await db.list("injuries", { ownerId: athleteId })) || []) : [];
   const files = (await db.list("files", { ownerId: athleteId })) || [];
-  const achievements = (await db.list("achievements", { ownerId: athleteId })) || [];
-  const plans = (await db.list("plans", { athleteId })) || [];
+  const achievements = sharePerformance ? ((await db.list("achievements", { ownerId: athleteId })) || []) : [];
+  const plans = sharePerformance ? ((await db.list("plans", { athleteId: athleteId })) || []) : [];
 
   const allRecordsList = [
     ...sessions.map((s) => ({ ...s, kind: "sessions" })),
@@ -348,8 +487,13 @@ export async function getConsolidatedAthleteContext(db, athleteId) {
 
   const readiness = calculateRecoveryReadiness(allRecordsList, recoveryLogs);
 
-  // VideoLab clips
-  const videoFiles = files.filter((f) => f.mime && f.mime.startsWith("video/"));
+  // VideoLab clips (filtered by consent / review request)
+  const videoFiles = files.filter((f) => {
+    if (!f.mime || !f.mime.startsWith("video/")) return false;
+    if (isSelfOrAdmin) return true;
+    if (f.requestCoachReview) return true;
+    return sharePerformance;
+  });
   const analysedVideos = videoFiles.filter((f) => f.analysis);
   const latestVideo = analysedVideos[0] || videoFiles[0] || null;
 
@@ -367,36 +511,35 @@ export async function getConsolidatedAthleteContext(db, athleteId) {
   // Cross-module alerts collection
   const alerts = [];
 
-  // Safety / Pain Alert
-  const activeInjuries = injuries.filter((i) => i.stage !== "Return to play");
-  if (activeInjuries.length > 0) {
-    alerts.push({
-      type: "danger",
-      category: "safety",
-      title: "Active Rehabilitation Stage",
-      message: `Active injury recorded (${activeInjuries[0].title}). Medical clearance required.`,
-    });
-  } else if (readiness.todayLog?.painFlag) {
-    alerts.push({
-      type: "danger",
-      category: "safety",
-      title: "Pain Reported",
-      message: `Pain reported in ${readiness.todayLog.painArea || "body area"} (level ${readiness.todayLog.painLevel}/10).`,
-    });
+  if (shareHealth) {
+    const activeInjuries = injuries.filter((i) => i.stage !== "Return to play");
+    if (activeInjuries.length > 0) {
+      alerts.push({
+        type: "danger",
+        category: "safety",
+        title: "Active Rehabilitation Stage",
+        message: `Active injury recorded (${activeInjuries[0].title}). Medical clearance required.`,
+      });
+    } else if (readiness.todayLog?.painFlag) {
+      alerts.push({
+        type: "danger",
+        category: "safety",
+        title: "Pain Reported",
+        message: `Pain reported in ${readiness.todayLog.painArea || "body area"} (level ${readiness.todayLog.painLevel}/10).`,
+      });
+    }
+
+    if (readiness.readiness === "RECOVERY PRIORITY" || readiness.readiness === "COACH REVIEW") {
+      alerts.push({
+        type: "warning",
+        category: "recovery",
+        title: "Low Readiness Indicator",
+        message: readiness.reason,
+      });
+    }
   }
 
-  // Recovery Alert
-  if (readiness.readiness === "RECOVERY PRIORITY" || readiness.readiness === "COACH REVIEW") {
-    alerts.push({
-      type: "warning",
-      category: "recovery",
-      title: "Low Readiness Indicator",
-      message: readiness.reason,
-    });
-  }
-
-  // Workload Spike Alert
-  if (acwr > 1.50) {
+  if (sharePerformance && acwr > 1.50) {
     alerts.push({
       type: "warning",
       category: "workload",
@@ -405,7 +548,6 @@ export async function getConsolidatedAthleteContext(db, athleteId) {
     });
   }
 
-  // Video Review Request Alert
   const reviewReqVideo = videoFiles.find((f) => f.requestCoachReview);
   if (reviewReqVideo) {
     alerts.push({
@@ -416,8 +558,7 @@ export async function getConsolidatedAthleteContext(db, athleteId) {
     });
   }
 
-  // Competition Countdown
-  const daysToCompetition = profile.competitionDate
+  const daysToCompetition = (sharePerformance && profile.competitionDate)
     ? Math.max(0, Math.round((Date.parse(profile.competitionDate) - now) / 86400000))
     : null;
 
@@ -432,31 +573,39 @@ export async function getConsolidatedAthleteContext(db, athleteId) {
       birthDate: profile.birthDate,
       state: profile.state,
       district: profile.district,
-      competitionDate: profile.competitionDate,
+      competitionDate: sharePerformance ? profile.competitionDate : null,
       daysToCompetition,
       coachId: profile.coachId,
+      shareHealth: profile.shareHealth,
+      sharePerformance: profile.sharePerformance,
     },
-    readiness,
-    training: {
-      activePlan: plans.find((p) => p.status === "active" || p.status === "published") || plans[0] || null,
-      adherence: Math.min(100, Math.round((last7Days.length / 4) * 100)),
-      acute7dLoad,
-      chronic28dLoad: Math.round(chronic28dLoad),
-      acwr,
-      totalSessions: sessions.length,
-      lastSession: sessions[0] || null,
-    },
-    performance: {
-      currentPB: profile.target ? sessions.find((s) => s.event === profile.event)?.metric : null,
-      target: profile.target,
-      achievementsCount: achievements.length,
-    },
-    recovery: {
-      latestCheckIn: readiness.todayLog,
-      baseline: readiness.baseline,
-      trends: readiness.trends,
-      activeInjuries,
-    },
+    readiness: shareHealth ? readiness : { readiness: readiness.readiness, statusColor: readiness.statusColor },
+    training: sharePerformance
+      ? {
+          activePlan: plans.find((p) => p.status === "active" || p.status === "published") || plans[0] || null,
+          adherence: Math.min(100, Math.round((last7Days.length / 4) * 100)),
+          acute7dLoad,
+          chronic28dLoad: Math.round(chronic28dLoad),
+          acwr,
+          totalSessions: sessions.length,
+          lastSession: sessions[0] || null,
+        }
+      : { totalSessions: 0, adherence: null },
+    performance: sharePerformance
+      ? {
+          currentPB: profile.target ? sessions.find((s) => s.event === profile.event)?.metric : null,
+          target: profile.target,
+          achievementsCount: achievements.length,
+        }
+      : { currentPB: null, target: null, achievementsCount: 0 },
+    recovery: shareHealth
+      ? {
+          latestCheckIn: readiness.todayLog,
+          baseline: readiness.baseline,
+          trends: readiness.trends,
+          activeInjuries: injuries.filter((i) => i.stage !== "Return to play"),
+        }
+      : { latestCheckIn: null, activeInjuries: [] },
     video: {
       totalVideos: videoFiles.length,
       latestVideo,

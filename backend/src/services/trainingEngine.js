@@ -309,22 +309,27 @@ export class TrainingEngine {
 
   /**
    * Generates or fetches the active Weekly Plan for the athlete.
-   * If Coach created a plan, respects coach plan with versioning and priority!
-   * Otherwise generates an evidence-informed adaptive plan based on previous week.
+   * Maintains clear priority:
+   * 1. Safety (active injury/pain flags)
+   * 2. Coach-published plan (source = "coach", status != "draft")
+   * 3. Athlete constraints
+   * 4. System/AI recommendation (source = "system")
+   *
+   * Coach published plans MUST NOT be overwritten by system AI generation!
    */
   async getOrCreateWeeklyPlan({ athlete, weekStartDate = null, publishedOnly = false }) {
-    // If weekStartDate is not explicitly specified, check for athlete's latest active/published plan
-    if (!weekStartDate) {
-      let allPlans = (await this.db.list("plans", { athleteId: athlete.id })) || [];
-      if (publishedOnly) {
-        allPlans = allPlans.filter((p) => p.status !== "draft");
-      }
-      const sortedPlans = allPlans.sort((a, b) =>
-        (b.weekStart || "").localeCompare(a.weekStart || ""),
-      );
-      if (sortedPlans.length > 0) {
-        return sortedPlans[0];
-      }
+    let allPlans = (await this.db.list("plans", { athleteId: athlete.id })) || [];
+
+    // Priority 2: Check if a published coach plan exists
+    const coachPublishedPlans = allPlans
+      .filter((p) => p.source === "coach" && p.status !== "draft")
+      .sort((a, b) => (b.weekStart || "").localeCompare(a.weekStart || ""));
+
+    if (weekStartDate) {
+      const targetCoachPlan = coachPublishedPlans.find((p) => p.weekStart === weekStartDate);
+      if (targetCoachPlan) return targetCoachPlan;
+    } else if (coachPublishedPlans.length > 0) {
+      return coachPublishedPlans[0];
     }
 
     // Determine target Monday for the week
@@ -335,11 +340,14 @@ export class TrainingEngine {
     const weekStartStr = monday.toISOString().slice(0, 10);
 
     const planId = `plan-${athlete.id}-${weekStartStr}`;
-    const existing = await this.db.get("plans", planId);
+    const aiPlanId = `plan-ai-${athlete.id}-${weekStartStr}`;
+
+    const existing = (await this.db.get("plans", planId)) || (await this.db.get("plans", aiPlanId));
     if (existing) {
-      if (publishedOnly && existing.status === "draft") {
-        // Return active fallback or wait for publication
-      } else {
+      if (existing.source === "coach" && existing.status !== "draft") {
+        return existing;
+      }
+      if (!publishedOnly || existing.status !== "draft") {
         return existing;
       }
     }
@@ -352,9 +360,11 @@ export class TrainingEngine {
     // Look for previous week's plan to adapt from
     const prevMonday = new Date(monday.getTime() - 7 * 86400000);
     const prevPlanId = `plan-${athlete.id}-${prevMonday.toISOString().slice(0, 10)}`;
-    const previousPlan = await this.db.get("plans", prevPlanId);
+    const previousPlan =
+      (await this.db.get("plans", prevPlanId)) ||
+      (await this.db.get("plans", `plan-ai-${athlete.id}-${prevMonday.toISOString().slice(0, 10)}`));
 
-    // Generate Adaptive Plan
+    // Generate Adaptive System/AI Plan
     const adaptivePlan = this.generateAdaptiveWeeklyPlan({
       athlete,
       profile,
@@ -362,6 +372,7 @@ export class TrainingEngine {
       monday,
       previousPlan,
       sessions,
+      existingPlan: existing?.source === "system" ? existing : null,
     });
 
     await this.db.put("plans", adaptivePlan);
@@ -369,72 +380,108 @@ export class TrainingEngine {
   }
 
   /**
-   * Generates a research-informed weekly plan adapted from previous week results
+   * Generates a research-informed weekly plan adapted from previous week results,
+   * respecting version history, competition proximity, and preserving completion data.
    */
-  generateAdaptiveWeeklyPlan({ athlete, profile, weekStart, monday, previousPlan, sessions }) {
+  generateAdaptiveWeeklyPlan({
+    athlete,
+    profile,
+    weekStart,
+    monday,
+    previousPlan,
+    sessions,
+    existingPlan = null,
+  }) {
+    const athleteId = athlete.id || athlete.ownerId;
     // Evaluate previous week adherence and safety
     let prevAdherence = 1.0;
     let hadPain = profile.injuryFlag;
-    let performanceImproving = true;
 
     if (previousPlan?.days) {
-      const completedCount = previousPlan.days.filter((d) => d.status === "completed").length;
-      prevAdherence = completedCount / previousPlan.days.length;
-      hadPain = hadPain || previousPlan.days.some((d) => d.athleteCompletion?.painFlag);
+      const activePrev = previousPlan.days.filter((d) => (d.expectedDuration || 0) > 0);
+      const completedCount = activePrev.filter((d) => d.status === "completed").length;
+      prevAdherence = activePrev.length > 0 ? completedCount / activePrev.length : 1.0;
+      hadPain = hadPain || previousPlan.days.some((d) => d.athleteCompletion?.painFlag || Number(d.athleteCompletion?.pain) > 0);
     }
 
     const weekEnd = new Date(monday.getTime() + 6 * 86400000).toISOString().slice(0, 10);
     const isYouth = profile.age < 16;
     const isTaper = profile.weeksToCompetition && profile.weeksToCompetition <= 2;
+    const isPeak = profile.weeksToCompetition && profile.weeksToCompetition <= 1;
 
-    const days = [
+    const rawDays = [
       {
         dayIndex: 0,
         dayOfWeek: "Monday",
         date: this.addDays(monday, 0),
-        sessionType: "Acceleration Development",
-        objective: "0–20m acceleration mechanics, falling starts & horizontal force projection",
-        expectedDuration: isYouth ? 45 : 60,
-        targetIntensity: 95,
+        sessionType: isPeak ? "Championship Activation" : "Acceleration Development",
+        objective: isPeak
+          ? "Short explosive starts (0–15m), neural readiness & technical sharpness"
+          : "0–20m acceleration mechanics, falling starts & horizontal force projection",
+        expectedDuration: isPeak ? 35 : isYouth ? 45 : 60,
+        targetIntensity: isPeak ? 98 : 95,
         status: "scheduled",
         warmup: [
           "Dynamic hip & ankle mobility flow (10 min)",
           "A-Skip and calf dribble drills (2 x 20m)",
           "Progressive 30m buildups (2 reps)",
         ],
-        exercises: [
-          {
-            name: "10m Falling Starts",
-            sets: isYouth ? 3 : 4,
-            reps: 1,
-            distance: "10m",
-            targetIntensity: "100%",
-            rest: "90 sec",
-            coachingCues: "Lean until gravity forces first strike. Strike back under hips.",
-          },
-          {
-            name: "20m 3-Point Stance Acceleration",
-            sets: isYouth ? 3 : 4,
-            reps: 1,
-            distance: "20m",
-            targetIntensity: "98%",
-            rest: "2 min",
-            coachingCues: "Drive violently off front pedal. Keep eyes forward on track.",
-          },
-          {
-            name: "Ankle Pogo Hops",
-            sets: 3,
-            reps: 12,
-            distance: "In place",
-            targetIntensity: "High",
-            rest: "60 sec",
-            coachingCues: "Keep ankles stiff; minimal ground contact time.",
-          },
-        ],
+        exercises: isPeak
+          ? [
+              {
+                name: "10m Falling Starts",
+                sets: 2,
+                reps: 1,
+                distance: "10m",
+                targetIntensity: "100%",
+                rest: "2 min",
+                coachingCues: "Explosive first stride; maximize power off zero velocity.",
+              },
+              {
+                name: "15m 3-Point Stance Acceleration",
+                sets: 2,
+                reps: 1,
+                distance: "15m",
+                targetIntensity: "100%",
+                rest: "3 min",
+                coachingCues: "Low shin angle, stay crisp, stop early before fatigue.",
+              },
+            ]
+          : [
+              {
+                name: "10m Falling Starts",
+                sets: isYouth ? 3 : 4,
+                reps: 1,
+                distance: "10m",
+                targetIntensity: "100%",
+                rest: "90 sec",
+                coachingCues: "Lean until gravity forces first strike. Strike back under hips.",
+              },
+              {
+                name: "20m 3-Point Stance Acceleration",
+                sets: isYouth ? 3 : 4,
+                reps: 1,
+                distance: "20m",
+                targetIntensity: "98%",
+                rest: "2 min",
+                coachingCues: "Drive violently off front pedal. Keep eyes forward on track.",
+              },
+              {
+                name: "Ankle Pogo Hops",
+                sets: 3,
+                reps: 12,
+                distance: "In place",
+                targetIntensity: "High",
+                rest: "60 sec",
+                coachingCues: "Keep ankles stiff; minimal ground contact time.",
+              },
+            ],
         cooldown: ["Gentle walking flush (5 min)", "Calf and hamstring active stretches"],
         coachNotes: hadPain
           ? "Safety notice: Athlete reported prior soreness. Keep volume controlled."
-          : "Focus on explosive first 3 strides.",
+          : isPeak
+            ? "Championship week: High intensity, minimal volume. Stay fresh."
+            : "Focus on explosive first 3 strides.",
       },
       {
         dayIndex: 1,
@@ -631,59 +678,124 @@ export class TrainingEngine {
       },
     ];
 
+    // Preserve athlete completed check-ins if existing plan is provided
+    const days = rawDays.map((newDay) => {
+      const oldDay = existingPlan?.days?.find((od) => od.dayIndex === newDay.dayIndex);
+      if (oldDay && oldDay.athleteCompletion) {
+        return {
+          ...newDay,
+          status: oldDay.status,
+          athleteCompletion: oldDay.athleteCompletion,
+          completionScore: oldDay.completionScore,
+          performanceScore: oldDay.performanceScore,
+        };
+      }
+      return newDay;
+    });
+
+    // Versioning calculation
+    const version = existingPlan ? (existingPlan.version || 1) + 1 : 1;
+    const previousVersion = existingPlan ? existingPlan.version || 1 : null;
+    const versionHistory = existingPlan?.versionHistory
+      ? [...existingPlan.versionHistory]
+      : [];
+
+    if (existingPlan) {
+      versionHistory.push({
+        version: existingPlan.version || 1,
+        modifiedAt: existingPlan.updatedAt || new Date().toISOString(),
+        modifiedBy: existingPlan.createdBy || "system",
+        status: existingPlan.status,
+        source: existingPlan.source || "system",
+        changeReason: "Adaptive weekly plan generated / updated",
+      });
+    }
+
     return {
-      id: `plan-${athlete.id}-${weekStart}`,
-      athleteId: athlete.id,
+      id: existingPlan?.id || `plan-${athleteId}-${weekStart}`,
+      athleteId: athleteId,
       coachId: athlete.coachId || null,
       weekStart,
       weekEnd,
-      phase: profile.experienceLevel === "beginner" ? "Foundation" : "Acceleration Development",
+      phase: isPeak
+        ? "Championship Peak"
+        : isTaper
+          ? "Competition Prep"
+          : profile.experienceLevel === "beginner"
+            ? "Foundation"
+            : "Acceleration Development",
       weeklyObjective: hadPain
         ? "Controlled volume stabilization and recovery management"
         : prevAdherence < 0.6
           ? "Adherence stabilization — focus on completing fundamental sprint exposures"
-          : "0–20m acceleration mechanics and upright velocity exposure",
+          : isPeak
+            ? "Championship peaking & neurological freshness"
+            : isTaper
+              ? "Race simulation & starting block tune-up"
+              : "0–20m acceleration mechanics and upright velocity exposure",
       source: "system", // "system" | "coach"
-      version: 1,
+      version,
+      previousVersion,
+      createdBy: "system",
       status: "active",
       days,
+      versionHistory,
       review: {
-        completedSessions: 0,
-        totalPlannedSessions: 6,
-        adherencePercentage: 0,
+        completedSessions: days.filter((d) => d.status === "completed").length,
+        totalPlannedSessions: days.filter((d) => (d.expectedDuration || 0) > 0).length,
+        adherencePercentage: Math.round(
+          (days.filter((d) => d.status === "completed").length /
+            days.filter((d) => (d.expectedDuration || 0) > 0).length) *
+            100,
+        ),
         performanceTrend: "Awaiting sessions",
         recoveryStatus: "Good",
         painReported: hadPain,
         recommendation: "Execute planned sessions with emphasis on technical execution.",
       },
-      createdAt: new Date().toISOString(),
+      createdAt: existingPlan?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
   }
 
   /**
-   * Athlete checks in on a daily session card with actual results, RPE, recovery, and pain flag
+   * Athlete checks in on a daily session card with actual results, RPE, recovery, and pain flag.
+   * Enforces Ownership, Valid Day Index, Source Preservation, and Data Separation.
    */
   async checkInDailySession({ planId, dayIndex, checkinData, athleteId }) {
     const plan = await this.db.get("plans", planId);
     if (!plan) throw new Error("Training plan not found.");
-    if (plan.athleteId !== athleteId) throw new Error("Unauthorized.");
+    if (plan.athleteId !== athleteId) throw new Error("Unauthorized access to plan check-in.");
 
-    const day = plan.days.find((d) => d.dayIndex === Number(dayIndex));
+    const dIdx = Number(dayIndex);
+    if (isNaN(dIdx) || dIdx < 0 || dIdx >= plan.days.length) {
+      throw new Error("Invalid session day index.");
+    }
+
+    const day = plan.days.find((d) => d.dayIndex === dIdx);
     if (!day) throw new Error("Session day not found in plan.");
 
     const status = checkinData.status || "completed"; // "completed" | "partially_completed" | "missed"
     const rpe = Number(checkinData.rpe || 7);
     const recovery = checkinData.recovery || "Good";
-    const painFlag = Boolean(checkinData.painFlag);
+    const painFlag = Boolean(checkinData.painFlag || Number(checkinData.pain) >= 5);
     const actualMetric = checkinData.actualMetric ? Number(checkinData.actualMetric) : null;
     const notes = checkinData.notes || "";
     const missedReason = status === "missed" ? checkinData.missedReason || "No time" : null;
-    const actualSets = checkinData.actualSets !== undefined && checkinData.actualSets !== "" ? Number(checkinData.actualSets) : null;
-    const actualReps = checkinData.actualReps !== undefined && checkinData.actualReps !== "" ? Number(checkinData.actualReps) : null;
+    const actualSets =
+      checkinData.actualSets !== undefined && checkinData.actualSets !== ""
+        ? Number(checkinData.actualSets)
+        : null;
+    const actualReps =
+      checkinData.actualReps !== undefined && checkinData.actualReps !== ""
+        ? Number(checkinData.actualReps)
+        : null;
     const actualDistance = checkinData.actualDistance || null;
     const actualTime = checkinData.actualTime || null;
-    const actualExercises = Array.isArray(checkinData.actualExercises) ? checkinData.actualExercises : [];
+    const actualDuration = actualTime ? Number(actualTime) : checkinData.actualDuration ? Number(checkinData.actualDuration) : null;
+    const actualExercises = Array.isArray(checkinData.actualExercises)
+      ? checkinData.actualExercises
+      : [];
 
     // Calculate Completion Score vs Performance Score
     let completionScore = 100;
@@ -694,7 +806,6 @@ export class TrainingEngine {
     if (status === "missed") {
       performanceScore = 0;
     } else if (actualMetric && day.exercises?.[0]) {
-      // If time metric, lower is better; calculate ratio against target/baseline
       const targetTime = Number(day.exercises[0].targetTime || day.exercises[0].targetMetric || 0);
       if (targetTime > 0 && actualMetric > 0) {
         performanceScore = Math.min(100, Math.round((targetTime / actualMetric) * 100));
@@ -705,17 +816,21 @@ export class TrainingEngine {
       performanceScore = status === "completed" ? 95 : 65;
     }
 
+    // Mutate day status and store actual data SEPARATELY without replacing planned parameters
     day.status = status;
     day.athleteCompletion = {
       status,
       completedAt: new Date().toISOString(),
+      planVersion: plan.version || 1,
       rpe,
       recovery,
       painFlag,
+      pain: checkinData.pain !== undefined ? Number(checkinData.pain) : painFlag ? 6 : 0,
       actualMetric,
       actualSets,
       actualReps,
       actualDistance,
+      actualDuration,
       actualTime,
       actualExercises,
       completionScore,
@@ -738,7 +853,7 @@ export class TrainingEngine {
         trainingDate: sessionDate,
         event: plan.phase || "100m",
         unit: "sec",
-        duration: day.expectedDuration || 45,
+        duration: actualDuration || day.expectedDuration || 45,
         effort: rpe,
         metric: actualMetric || 0,
         pain: painFlag ? 6 : 0,
@@ -748,15 +863,18 @@ export class TrainingEngine {
       });
     }
 
-    // Recompute overall plan review statistics
-    const completedDays = plan.days.filter((d) => d.status === "completed").length;
-    const totalActiveDays = plan.days.filter((d) => d.sessionType !== "Weekly Review & Rest").length;
-    const adherence = Math.round((completedDays / totalActiveDays) * 100);
+    // Recompute overall plan review statistics from actual data
+    const activeDays = plan.days.filter((d) => (d.expectedDuration || 0) > 0);
+    const completedDays = activeDays.filter((d) => d.status === "completed").length;
+    const adherence = activeDays.length > 0 ? Math.round((completedDays / activeDays.length) * 100) : 0;
 
+    if (!plan.review) plan.review = {};
     plan.review.completedSessions = completedDays;
-    plan.review.totalPlannedSessions = totalActiveDays;
+    plan.review.totalPlannedSessions = activeDays.length;
     plan.review.adherencePercentage = adherence;
-    plan.review.painReported = plan.days.some((d) => d.athleteCompletion?.painFlag);
+    plan.review.painReported = plan.days.some(
+      (d) => d.athleteCompletion?.painFlag || Number(d.athleteCompletion?.pain) >= 5,
+    );
 
     if (painFlag) {
       plan.review.recommendation =
@@ -770,32 +888,59 @@ export class TrainingEngine {
   }
 
   /**
-   * Generates a Sunday Weekly Review and adaptation recommendation for the next week
+   * Generates a Sunday Weekly Review and adaptation recommendation based on actual completed data.
    */
   async generateWeeklyReview(planId, athleteId) {
     const plan = await this.db.get("plans", planId);
     if (!plan || plan.athleteId !== athleteId) throw new Error("Plan not found or unauthorized.");
 
     const days = plan.days || [];
-    const activeDays = days.filter((d) => d.expectedDuration > 0);
+    const activeDays = days.filter((d) => (d.expectedDuration || 0) > 0);
     const completed = activeDays.filter((d) => d.status === "completed").length;
     const missed = activeDays.filter((d) => d.status === "missed").length;
     const partial = activeDays.filter((d) => d.status === "partially_completed").length;
-    const painReported = days.some((d) => d.athleteCompletion?.painFlag);
+    const painReported = days.some(
+      (d) => d.athleteCompletion?.painFlag || Number(d.athleteCompletion?.pain) >= 5,
+    );
 
-    const adherence = Math.round((completed / activeDays.length) * 100);
+    const adherence = activeDays.length > 0 ? Math.round((completed / activeDays.length) * 100) : 0;
+
+    // RPE metrics
     const rpes = days
-      .filter((d) => d.athleteCompletion?.rpe)
-      .map((d) => d.athleteCompletion.rpe);
-    const avgRpe = rpes.length ? Number((rpes.reduce((a, b) => a + b, 0) / rpes.length).toFixed(1)) : null;
+      .map((d) => d.athleteCompletion?.rpe)
+      .filter((r) => r !== undefined && r !== null && Number(r) > 0);
+    const avgRpe = rpes.length
+      ? Number((rpes.reduce((a, b) => Number(a) + Number(b), 0) / rpes.length).toFixed(1))
+      : null;
+    const highestRPE = rpes.length ? Math.max(...rpes.map(Number)) : null;
 
-    let trend = "Stable";
+    // Planned load vs Actual load math
+    let plannedLoad = 0;
+    let actualLoad = 0;
+
+    for (const d of activeDays) {
+      const dur = d.expectedDuration || 45;
+      const intensityRpe = Number(d.targetIntensity) >= 90 ? 8 : Number(d.targetIntensity) >= 80 ? 7 : 6;
+      plannedLoad += dur * intensityRpe;
+
+      if (d.athleteCompletion && (d.status === "completed" || d.status === "partially_completed")) {
+        const actualDur = Number(d.athleteCompletion.actualDuration || d.athleteCompletion.actualTime || dur);
+        const actualRpe = Number(d.athleteCompletion.rpe || 5);
+        actualLoad += actualDur * actualRpe;
+      }
+    }
+    const loadDifference = actualLoad - plannedLoad;
+
+    let trend = rpes.length === 0 && completed === 0 ? "Awaiting sessions" : "Stable";
     let recommendation = "";
 
     if (painReported) {
       trend = "Attention Flagged";
       recommendation =
         "Athlete flagged pain or soreness. Do not automatically advance volume. Prioritize soft-tissue recovery and consult your coach.";
+    } else if (rpes.length === 0 && completed === 0) {
+      trend = "Awaiting sessions";
+      recommendation = "No session check-ins recorded yet for this weekly microcycle.";
     } else if (adherence >= 80) {
       trend = "Improving";
       recommendation =
@@ -819,7 +964,11 @@ export class TrainingEngine {
       partialSessions: partial,
       adherencePercentage: adherence,
       adherenceScore: adherence,
+      plannedLoad,
+      actualLoad,
+      loadDifference,
       averageRPE: avgRpe,
+      highestRPE,
       painReported,
       safetyAlert: painReported
         ? "Training Safety Alert: Athlete flagged physical symptoms or pain. Do not advance training load until evaluated by a qualified coach or medical professional."
@@ -908,7 +1057,7 @@ export class TrainingEngine {
   }
 
   /**
-   * Internal Training Load Analytics (duration * RPE in Arbitrary Units AU)
+   * Internal Training Load Analytics using actual completed training load (Session RPE × duration)
    */
   async getTrainingLoadAnalytics(athleteId) {
     const sessions = await this.db.list("sessions", { ownerId: athleteId });
@@ -921,18 +1070,32 @@ export class TrainingEngine {
       return !isNaN(d) && d >= now - fourWeeksMs;
     });
 
+    // Planned load calculated from active/published plans
     const plannedLoadTotal = plans.reduce((acc, p) => {
       if (!p.days) return acc;
-      return acc + p.days.reduce((dAcc, d) => dAcc + (d.expectedDuration || 45) * (d.targetIntensity >= 90 ? 8 : 6), 0);
+      return (
+        acc +
+        p.days.reduce(
+          (dAcc, d) =>
+            dAcc + (d.expectedDuration || 45) * (Number(d.targetIntensity) >= 90 ? 8 : 6),
+          0,
+        )
+      );
     }, 0);
 
-    const actualLoadTotal = recentSessions.reduce((acc, s) => acc + (s.duration || 0) * (s.effort || 5), 0);
+    // Actual load strictly from completed sessions (duration * effort RPE)
+    const actualLoadTotal = recentSessions.reduce(
+      (acc, s) => acc + (s.duration || 0) * (s.effort || 5),
+      0,
+    );
 
     const rpes = recentSessions.map((s) => s.effort).filter(Boolean);
     const avgRpe = rpes.length ? Number((rpes.reduce((a, b) => a + b, 0) / rpes.length).toFixed(1)) : 0;
 
     const sevenDaysMs = 7 * 86400000;
-    const acuteSessions = recentSessions.filter((s) => Date.parse(s.date || s.trainingDate) >= now - sevenDaysMs);
+    const acuteSessions = recentSessions.filter(
+      (s) => Date.parse(s.date || s.trainingDate) >= now - sevenDaysMs,
+    );
     const acuteLoad = acuteSessions.reduce((acc, s) => acc + (s.duration || 0) * (s.effort || 5), 0);
     const chronicWeeklyAvg = actualLoadTotal / 4 || 1;
     const acwr = Number((acuteLoad / chronicWeeklyAvg).toFixed(2));
@@ -940,6 +1103,7 @@ export class TrainingEngine {
     return {
       plannedLoad: plannedLoadTotal,
       actualLoad: actualLoadTotal,
+      loadDifference: actualLoadTotal - plannedLoadTotal,
       loadUnit: "AU",
       avgRpe,
       acuteLoad,
@@ -966,3 +1130,4 @@ export class TrainingEngine {
     return result.toISOString().slice(0, 10);
   }
 }
+

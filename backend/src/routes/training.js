@@ -49,7 +49,8 @@ export function trainingRoutes(db) {
 
   // Active / Current Weekly Plan (supports ?source=coach or ?source=ai)
   r.get("/plan", async (req, res) => {
-    const athlete = (await db.get("profiles", req.user.id)) || {};
+    const rawProfile = (await db.get("profiles", req.user.id)) || {};
+    const athlete = { id: req.user.id, ...rawProfile };
 
     if (req.query.source === "coach") {
       const allPlans = (await db.list("plans", { athleteId: req.user.id })) || [];
@@ -104,7 +105,8 @@ export function trainingRoutes(db) {
 
   // Get Both AI & Coach Weekly Plans
   r.get("/plan/both", async (req, res) => {
-    const athlete = (await db.get("profiles", req.user.id)) || {};
+    const rawProfile = (await db.get("profiles", req.user.id)) || {};
+    const athlete = { id: req.user.id, ...rawProfile };
     const now = new Date();
     const monday = req.query.weekStart ? new Date(req.query.weekStart) : engine.getMondayOfWeek(now);
     const weekStartStr = monday.toISOString().slice(0, 10);
@@ -154,7 +156,8 @@ export function trainingRoutes(db) {
 
   // Generate / Regenerate Adaptive Weekly Plan
   r.post("/plan/generate", async (req, res) => {
-    const athlete = (await db.get("profiles", req.user.id)) || {};
+    const rawProfile = (await db.get("profiles", req.user.id)) || {};
+    const athlete = { id: req.user.id, ...rawProfile };
     const sessions = await db.list("sessions", { ownerId: req.user.id });
     const injuries = await db.list("injuries", { ownerId: req.user.id });
     const profile = engine.getAthleteTrainingProfile(athlete, sessions, injuries);
@@ -163,14 +166,42 @@ export function trainingRoutes(db) {
     const monday = engine.getMondayOfWeek(now);
     const weekStartStr = monday.toISOString().slice(0, 10);
 
+    // Look up existing plans for this week
+    const allPlans = (await db.list("plans", { athleteId: req.user.id })) || [];
+    const existingCoachPlan = allPlans.find(
+      (p) => p.weekStart === weekStartStr && p.source === "coach" && p.status !== "draft",
+    );
+    const defaultPlanId = `plan-${req.user.id}-${weekStartStr}`;
+    const aiPlanId = `plan-ai-${req.user.id}-${weekStartStr}`;
+    const existingSystemPlan =
+      (await db.get("plans", aiPlanId)) ||
+      (await db.get("plans", defaultPlanId));
+
+    const prevMonday = new Date(monday.getTime() - 7 * 86400000);
+    const prevPlanId = `plan-${req.user.id}-${prevMonday.toISOString().slice(0, 10)}`;
+    const previousPlan =
+      (await db.get("plans", prevPlanId)) ||
+      (await db.get("plans", `plan-ai-${req.user.id}-${prevMonday.toISOString().slice(0, 10)}`));
+
     const plan = engine.generateAdaptiveWeeklyPlan({
       athlete,
       profile,
       weekStart: weekStartStr,
       monday,
-      previousPlan: null,
+      previousPlan,
       sessions,
+      existingPlan: existingSystemPlan?.source === "system" ? existingSystemPlan : null,
     });
+
+    // If a coach plan is active for this week, do NOT overwrite it — store AI plan separately
+    if (existingCoachPlan) {
+      plan.id = aiPlanId;
+      plan.source = "system";
+      plan.coachPlanActive = true;
+    } else {
+      plan.id = defaultPlanId;
+      plan.source = "system";
+    }
 
     await db.put("plans", plan);
     res.json(plan);
@@ -219,12 +250,31 @@ export function trainingRoutes(db) {
   r.post("/send-digest", async (req, res) => {
     try {
       const targetUserId = req.body?.athleteId || req.user.id;
-      const userObj = (await db.get("users", targetUserId)) || req.user;
+
+      // Authorization Check
+      if (req.user.role === "athlete" && targetUserId !== req.user.id) {
+        return res.status(403).json({ error: "Unauthorized. Athletes can only request their own digest." });
+      }
+
       const athlete = (await db.get("profiles", targetUserId)) || {};
+      if (req.user.role === "coach" || req.user.role === "medical") {
+        const isAssigned =
+          athlete.coachId &&
+          (athlete.coachId === req.user.id ||
+            athlete.coachId.toLowerCase() === req.user.email?.toLowerCase());
+        if (!isAssigned && targetUserId !== req.user.id) {
+          return res.status(403).json({ error: "Unauthorized. You are not the assigned coach for this athlete." });
+        }
+      }
+
+      const userObj = (await db.get("users", targetUserId)) || (targetUserId === req.user.id ? req.user : null);
       const sessions = await db.list("sessions", { ownerId: targetUserId });
 
-      // Fetch or generate current weekly plan
-      const plan = await engine.generateAdaptiveWeeklyPlan(targetUserId);
+      // Fetch active weekly plan using getOrCreateWeeklyPlan (respecting object signature & coach plans)
+      const plan = await engine.getOrCreateWeeklyPlan({
+        athlete,
+        publishedOnly: false,
+      });
 
       // Fetch or generate last week's performance review
       let review = null;
@@ -232,12 +282,14 @@ export function trainingRoutes(db) {
         try {
           review = await engine.generateWeeklyReview(plan.id, targetUserId);
         } catch (_e) {
+          const activeDays = (plan.days || []).filter((d) => (d.expectedDuration || 0) > 0);
+          const completedCount = activeDays.filter((d) => d.status === "completed").length;
           review = {
             weekStart: plan.weekStart,
             weekEnd: plan.weekEnd,
-            plannedSessions: plan.days?.length || 7,
-            completedSessions: plan.days?.filter((d) => d.status === "completed").length || 0,
-            adherencePercentage: Math.round(((plan.days?.filter((d) => d.status === "completed").length || 0) / (plan.days?.length || 7)) * 100),
+            plannedSessions: activeDays.length || 6,
+            completedSessions: completedCount,
+            adherencePercentage: activeDays.length > 0 ? Math.round((completedCount / activeDays.length) * 100) : 0,
             averageRPE: null,
             trend: "Consistent",
             recommendation: "Stay consistent with daily warmups, hydration, and neurological recovery.",
@@ -245,14 +297,14 @@ export function trainingRoutes(db) {
         }
       }
 
-      const toEmail = req.body?.email || userObj.email || athlete.email;
+      const toEmail = req.body?.email || userObj?.email || athlete.email;
       if (!toEmail) {
         return res.status(400).json({ error: "No target email address found for athlete." });
       }
 
       const result = await sendWeeklyDigestEmail({
         toEmail,
-        athleteName: athlete.name || userObj.name || "Athlete",
+        athleteName: athlete.name || userObj?.name || "Athlete",
         review,
         plan,
         lastWeekSessions: sessions.slice(-7),

@@ -62,7 +62,12 @@ export function athleteRoutes(db, uploads) {
     if (p.coachId) {
       let coach = await db.get("users", p.coachId.toLowerCase());
       if (!coach) {
-        coach = (await db.list("users", { id: p.coachId }))[0];
+        const users = await db.list("users");
+        coach = users.find(
+          (u) =>
+            u.id === p.coachId ||
+            (u.email && u.email.toLowerCase() === p.coachId.toLowerCase()),
+        );
       }
       if (!coach || !["coach", "medical"].includes(coach.role))
         return res
@@ -106,7 +111,12 @@ export function athleteRoutes(db, uploads) {
   });
 
   r.get("/context", async (req, res) => {
-    const context = await getConsolidatedAthleteContext(db, req.user.id);
+    if (!req.user) return res.status(401).json({ error: "Authentication required" });
+    const targetId = req.query.athleteId || req.user.id;
+    const context = await getConsolidatedAthleteContext(db, targetId, req.user);
+    if (context.error) {
+      return res.status(context.status || 403).json({ error: context.error });
+    }
     res.json(context);
   });
 
@@ -126,9 +136,25 @@ export function athleteRoutes(db, uploads) {
     res.json(comparison);
   });
 
-  // Admin Benchmark Bulk Import Endpoint
+  // Admin Benchmark Bulk Import Endpoint (Admin ONLY)
   r.post("/benchmarks/import", async (req, res) => {
-    const records = Array.isArray(req.body) ? req.body : req.body.records || [];
+    if (!req.user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Forbidden. Admin access required." });
+    }
+    if (!req.body || typeof req.body !== "object") {
+      return res.status(400).json({ error: "Invalid payload. Request body must be an array or { records: [] }." });
+    }
+    const records = Array.isArray(req.body)
+      ? req.body
+      : (Array.isArray(req.body?.records) ? req.body.records : null);
+
+    if (!records) {
+      return res.status(400).json({ error: "Invalid payload. 'records' must be an array." });
+    }
+
     const result = await benchmarkService.importRecords(records);
     res.status(201).json(result);
   });

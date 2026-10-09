@@ -522,39 +522,103 @@ export class BenchmarkService {
    * Admin bulk import for verified benchmark records
    */
   async importRecords(records) {
-    if (!Array.isArray(records) || records.length === 0) {
-      return { imported: 0, skipped: 0, errors: ["No records provided"] };
+    if (!Array.isArray(records)) {
+      return { imported: 0, skipped: 0, total: 0, errors: ["Invalid records payload. Must be an array."] };
+    }
+    if (records.length === 0) {
+      return { imported: 0, skipped: 0, total: 0, errors: ["No records provided"] };
     }
 
     const existing = await this.db.list("benchmarks");
-    const existingKeys = new Set(existing.map((r) => generateDuplicateKey(r)));
+    const existingMap = new Map();
+    for (const ex of existing) {
+      const key = generateDuplicateKey(ex);
+      existingMap.set(key, ex);
+      if (ex.id) existingMap.set(ex.id, ex);
+    }
 
     let imported = 0;
     let skipped = 0;
     const errors = [];
 
-    for (const r of records) {
-      if (!r.sport || !r.event || !r.level || !r.performance?.value) {
+    for (let idx = 0; idx < records.length; idx++) {
+      const r = records[idx];
+      if (!r || typeof r !== "object") {
         skipped++;
-        errors.push(`Record missing required fields: ${JSON.stringify(r)}`);
+        errors.push(`Record ${idx}: Invalid record object format.`);
         continue;
       }
 
-      const dupKey = generateDuplicateKey(r);
-      if (existingKeys.has(dupKey)) {
+      const sport = typeof r.sport === "string" ? r.sport.trim() : "";
+      const event = typeof r.event === "string" ? r.event.trim() : "";
+      const level = typeof r.level === "string" ? r.level.trim() : "";
+      const rawPerf = r.performance?.value !== undefined ? r.performance.value : r.performance;
+      const perfValue = typeof rawPerf === "number" ? rawPerf : parseFloat(rawPerf);
+
+      if (!sport || !event || !level || perfValue === null || isNaN(perfValue) || perfValue <= 0 || !isFinite(perfValue)) {
         skipped++;
+        errors.push(`Record ${idx} (${event || "Unknown event"}): Missing required fields or invalid performance value (${rawPerf}).`);
+        continue;
+      }
+
+      const unit = r.unit || r.performance?.unit || "sec";
+      if (typeof unit !== "string" || !unit.trim()) {
+        skipped++;
+        errors.push(`Record ${idx}: Missing or invalid unit.`);
+        continue;
+      }
+
+      const dupKey = generateDuplicateKey({
+        ...r,
+        sport,
+        event,
+        level,
+        gender: r.gender || "",
+        ageCategory: r.ageCategory || "",
+        weightCategory: r.weightCategory || "",
+        classification: r.classification || "",
+        state: r.state || "",
+        district: r.district || "",
+        athleteName: r.athleteName || "",
+        performance: { value: perfValue, unit },
+      });
+
+      // Prevent duplicate imports and do not overwrite existing verified records
+      const existingRecord = existingMap.get(dupKey) || (r.id ? existingMap.get(r.id) : null);
+      if (existingRecord) {
+        skipped++;
+        if (existingRecord.verificationStatus === "verified" || existingRecord.verificationStatus === "Official AFI Record" || existingRecord.verified) {
+          errors.push(`Record ${idx} (${event}): Existing verified record found, skipping to prevent overwrite.`);
+        } else {
+          errors.push(`Record ${idx} (${event}): Duplicate record detected, skipping.`);
+        }
         continue;
       }
 
       const row = {
         ...r,
+        sport,
+        event,
+        level,
+        unit,
+        performance: {
+          value: perfValue,
+          unit,
+          label: r.performance?.label || `${perfValue} ${unit}`,
+        },
+        source: {
+          provider: r.source?.provider || "Admin Import",
+          name: r.source?.name || "Official Bulk Upload",
+          url: r.source?.url || "",
+        },
         verificationStatus: r.verificationStatus || "verified",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
       await this.db.put("benchmarks", row);
-      existingKeys.add(dupKey);
+      existingMap.set(dupKey, row);
+      if (row.id) existingMap.set(row.id, row);
       imported++;
     }
 

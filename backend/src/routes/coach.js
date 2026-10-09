@@ -497,6 +497,15 @@ export function coachRoutes(db) {
     );
     const adherence = Math.min(100, Math.round((recent14.length / 8) * 100));
 
+    // Consent flags
+    const sharePerformance = Boolean(p.sharePerformance);
+    const shareHealth = Boolean(p.shareHealth);
+
+    const filteredFiles = (await db.list("files", { ownerId: p.id })) || [];
+    const filesForCoach = sharePerformance
+      ? filteredFiles
+      : filteredFiles.filter((f) => f.requestCoachReview);
+
     res.json({
       profile: {
         id: p.id,
@@ -509,62 +518,66 @@ export function coachRoutes(db) {
         age: calculateAge(p.birthDate) ?? 18,
         state: p.state,
         district: p.district,
-        competitionDate: p.competitionDate,
-        currentPB: profile.currentPB,
-        previousPB: sessions.length > 1 ? sessions[1].metric : null,
+        competitionDate: sharePerformance ? p.competitionDate : null,
+        currentPB: sharePerformance ? profile.currentPB : null,
+        previousPB: sharePerformance && sessions.length > 1 ? sessions[1].metric : null,
         target: p.target,
         goal: p.goal,
         classification: p.classification,
         equipment: p.equipment,
         sportProfile: p.sportProfile,
         trainingStatus: athleteStatus,
-        adherence,
+        adherence: sharePerformance ? adherence : null,
+        shareHealth: p.shareHealth,
+        sharePerformance: p.sharePerformance,
       },
       performance: {
-        currentPB: profile.currentPB,
-        previousPB: sessions.length > 1 ? sessions[1].metric : null,
+        currentPB: sharePerformance ? profile.currentPB : null,
+        previousPB: sharePerformance && sessions.length > 1 ? sessions[1].metric : null,
         target: p.target,
-        benchmarkComparison,
-        recentResults: sessions.slice(0, 10).map((s) => ({
-          date: s.date || s.trainingDate,
-          title: s.title,
-          metric: s.metric,
-          unit: s.unit,
-          effort: s.effort,
-          pain: s.pain,
-          fatigue: s.fatigue,
-        })),
-        achievements,
+        benchmarkComparison: sharePerformance ? benchmarkComparison : null,
+        recentResults: sharePerformance
+          ? sessions.slice(0, 10).map((s) => ({
+              date: s.date || s.trainingDate,
+              title: s.title,
+              metric: s.metric,
+              unit: s.unit,
+              effort: s.effort,
+              pain: shareHealth ? s.pain : null,
+              fatigue: shareHealth ? s.fatigue : null,
+            }))
+          : [],
+        achievements: sharePerformance ? achievements : [],
       },
       training: {
-        currentPlan: activePlan,
-        activePlan,
-        plans,
-        recentSessions: sessions.slice(0, 20),
-        sessions,
-        adherence,
-        totalSessions: sessions.length,
+        currentPlan: sharePerformance ? activePlan : null,
+        activePlan: sharePerformance ? activePlan : null,
+        plans: sharePerformance ? plans : [],
+        recentSessions: sharePerformance ? sessions.slice(0, 20) : [],
+        sessions: sharePerformance ? sessions : [],
+        adherence: sharePerformance ? adherence : null,
+        totalSessions: sharePerformance ? sessions.length : 0,
       },
       recovery: {
-        recentSessions: sessions.slice(0, 10),
-        injuries,
-        safetyFlags,
-        latestFatigue: sessions[0]?.fatigue ?? null,
-        latestPain: sessions[0]?.pain ?? null,
-        logs: recoveryLogs,
-        readiness,
+        recentSessions: sharePerformance && shareHealth ? sessions.slice(0, 10) : [],
+        injuries: shareHealth ? injuries : [],
+        safetyFlags: shareHealth ? safetyFlags : [],
+        latestFatigue: shareHealth ? (sessions[0]?.fatigue ?? null) : null,
+        latestPain: shareHealth ? (sessions[0]?.pain ?? null) : null,
+        logs: shareHealth ? recoveryLogs : [],
+        readiness: shareHealth ? readiness : { readiness: readiness.readiness, statusColor: readiness.statusColor },
       },
-      readiness,
+      readiness: shareHealth ? readiness : { readiness: readiness.readiness, statusColor: readiness.statusColor },
       roadmap,
       goals,
-      realityCheck,
-      safetyFlags,
-      currentPlan: activePlan,
-      activePlan,
-      sessions,
-      achievements,
-      injuries,
-      files: await db.list("files", { ownerId: p.id }),
+      realityCheck: sharePerformance ? realityCheck : null,
+      safetyFlags: shareHealth ? safetyFlags : [],
+      currentPlan: sharePerformance ? activePlan : null,
+      activePlan: sharePerformance ? activePlan : null,
+      sessions: sharePerformance ? sessions : [],
+      achievements: sharePerformance ? achievements : [],
+      injuries: shareHealth ? injuries : [],
+      files: filesForCoach,
     });
   }
 
@@ -578,6 +591,9 @@ export function coachRoutes(db) {
     const check = await verifyAthleteConnection(req.params.athleteId, req.user);
     if (check.error) return res.status(check.status).json({ error: check.error });
     const p = check.profile;
+    if (!p.sharePerformance) {
+      return res.status(403).json({ error: "Access denied. Athlete has not granted performance sharing consent." });
+    }
 
     const sessions = (await db.list("sessions", { ownerId: p.id })) || [];
     sessions.sort((a, b) => (b.date || b.trainingDate || "").localeCompare(a.date || a.trainingDate || ""));
@@ -621,6 +637,9 @@ export function coachRoutes(db) {
     const check = await verifyAthleteConnection(req.params.athleteId, req.user);
     if (check.error) return res.status(check.status).json({ error: check.error });
     const p = check.profile;
+    if (!p.sharePerformance) {
+      return res.status(403).json({ error: "Access denied. Athlete has not granted performance sharing consent." });
+    }
 
     const sessions = (await db.list("sessions", { ownerId: p.id })) || [];
     // Strictly order by trainingDate descending
@@ -654,6 +673,9 @@ export function coachRoutes(db) {
     const check = await verifyAthleteConnection(req.params.athleteId, req.user);
     if (check.error) return res.status(check.status).json({ error: check.error });
     const p = check.profile;
+    if (!p.shareHealth) {
+      return res.status(403).json({ error: "Access denied. Athlete has not granted health sharing consent." });
+    }
 
     const sessions = (await db.list("sessions", { ownerId: p.id })) || [];
     sessions.sort((a, b) => (b.date || b.trainingDate || "").localeCompare(a.date || a.trainingDate || ""));
@@ -1122,33 +1144,36 @@ export function coachRoutes(db) {
 
       // 6. Video Review Requested Alert
       const videoFiles = (await db.list("files", { ownerId: p.id })) || [];
-      const reviewReqVideo = videoFiles.find((f) => f.requestCoachReview);
-      if (reviewReqVideo) {
+      const reviewReqVideos = videoFiles.filter((f) => f.requestCoachReview);
+      for (const reqVid of reviewReqVideos) {
         notifications.push({
-          id: `notif-video-${p.id}-${reviewReqVideo.id}`,
+          id: `notif-video-${p.id}-${reqVid.id}`,
           type: "info",
           category: "video",
           athleteId: p.id,
           athleteName: p.name,
           title: "Technique Video Review Requested",
-          message: `${p.name} requested technique review on clip '${reviewReqVideo.name}'.`,
-          date: new Date().toISOString().slice(0, 10),
+          message: `${p.name} requested technique review on clip '${reqVid.name || reqVid.id}'.`,
+          date: reqVid.createdAt ? reqVid.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
+          fileId: reqVid.id,
         });
       }
 
       // 7. Low Recovery / Readiness Alert
+      const records = await allRecords(db, p.id);
       const recoveryLogs = (await db.list("recovery_logs", { ownerId: p.id })) || [];
-      const readiness = calculateRecoveryReadiness([], recoveryLogs);
+      const readiness = calculateRecoveryReadiness(records, recoveryLogs);
       if (readiness.readiness === "RECOVERY PRIORITY" || readiness.readiness === "COACH REVIEW") {
+        const notifDate = readiness.todayLog?.date || readiness.todayLog?.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10);
         notifications.push({
-          id: `notif-readiness-${p.id}-${readiness.todayLog?.date || new Date().toISOString().slice(0, 10)}`,
+          id: `notif-readiness-${p.id}-${notifDate}-${readiness.readiness.replace(/\s+/g, "_")}`,
           type: readiness.readiness === "COACH REVIEW" ? "danger" : "warning",
           category: "recovery",
           athleteId: p.id,
           athleteName: p.name,
           title: `Recovery Alert: ${readiness.readiness}`,
           message: `${p.name}'s readiness indicator is ${readiness.readiness}: ${readiness.reason}`,
-          date: readiness.todayLog?.date || new Date().toISOString().slice(0, 10),
+          date: notifDate,
         });
       }
     }
